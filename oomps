@@ -169,11 +169,11 @@ def _parse_args(all_procs, really_all_procs, args):
 
     # Input:    Bash & Python `os.path.expanduser()`:
     # ~         /home/jboy
-    # ~alt      /home/alt
+    # ~tom      /home/tom
     # ~,        ~,
-    # ~,alt     ~,alt
-    # ~,~alt    ~,~alt
-    # ~alt,     ~alt,
+    # ~,tom     ~,tom
+    # ~,~tom    ~,~tom
+    # ~tom,     ~tom,
     for arg in args:
         if arg == "//":
             # Select ALL processes, even processes NOT associated with a TTY.
