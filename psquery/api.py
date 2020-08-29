@@ -12,7 +12,7 @@ from time import localtime, strftime
 from time import time as utc_time_now
 
 # Use `_procio` to augment the capabilities of `psutil`.
-from _procio import read_int_from_proc_pid, read_overcommit_settings
+from ._procio import read_int_from_proc_pid, read_overcommit_settings
 
 # https://pypi.org/project/psutil/
 # https://psutil.readthedocs.io/en/latest/

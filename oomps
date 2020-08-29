@@ -13,7 +13,7 @@ import shutil
 # https://pypi.org/project/click/
 # https://palletsprojects.com/p/click/
 import click
-import psquery
+from psquery import api as psquery_api
 
 
 class ParsedSelectionCriteria(object):
@@ -96,9 +96,9 @@ def oomps(
         for flag_value in sort_by_field_options:
             if flag_value.startswith('-'):
                 # It's a reverse sort, eg "-vszk".
-                sort_by_fields.append(psquery.SortByField(flag_value[1:], reverse=True))
+                sort_by_fields.append(psquery_api.SortByField(flag_value[1:], reverse=True))
             else:
-                sort_by_fields.append(psquery.SortByField(flag_value))
+                sort_by_fields.append(psquery_api.SortByField(flag_value))
     # The first sort field should be the highest priority; the second should
     # be the second-highest priority; etc.  So we'll maintain this ordering,
     # but put them all into a tuple.
@@ -114,10 +114,10 @@ def oomps(
     terminal_width = _get_terminal_width()
 
     # Note:  We only pass the *ordered* collection `fields_to_query` into
-    # `psquery.query_fields`, to ensure that we receive a `QueriedProcess`
+    # `psquery_api.query_fields`, to ensure that we receive a `QueriedProcess`
     # named-tuple result that has fields in a predictable & useful order.
     (queried_procs, field_types, memory_info, overcommit_settings) = \
-            psquery.query_fields(fields_to_query,
+            psquery_api.query_fields(fields_to_query,
                     selection_criteria=parsed_selection_criteria.deliver(),
                     sort_by_fields=sort_by_fields,
                     return_field_types=True, return_header_info=True)
@@ -155,7 +155,7 @@ def _parse_args(all_procs, really_all_procs, args):
     """
     this_process_ruid = os.getuid()
     this_process_home = os.path.expanduser("~")
-    default_criterion = psquery.ProcessUidEquals(this_process_ruid)
+    default_criterion = psquery_api.ProcessUidEquals(this_process_ruid)
     parsed_selection_criteria = ParsedSelectionCriteria(default_criterion)
 
     fields_to_query = _DEFAULT_FIELDS.split()
@@ -165,7 +165,7 @@ def _parse_args(all_procs, really_all_procs, args):
         # After this option or arg, all other args are redundant.
         parsed_selection_criteria.really_all_procs = True
     elif all_procs:
-        parsed_selection_criteria.selection_criteria.add(psquery.ProcessHasTty())
+        parsed_selection_criteria.selection_criteria.add(psquery_api.ProcessHasTty())
 
     # Input:    Bash & Python `os.path.expanduser()`:
     # ~         /home/jboy
@@ -180,7 +180,7 @@ def _parse_args(all_procs, really_all_procs, args):
             # After this option or arg, all other args are redundant.
             parsed_selection_criteria.really_all_procs = True
         elif arg == "/":
-            parsed_selection_criteria.selection_criteria.add(psquery.ProcessHasTty())
+            parsed_selection_criteria.selection_criteria.add(psquery_api.ProcessHasTty())
         elif arg == "~" or arg == this_process_home:
             parsed_selection_criteria.selection_criteria.add(default_criterion)
 
