@@ -10,8 +10,10 @@
 import os
 import shutil
 
+# https://github.com/pallets/click
 # https://pypi.org/project/click/
 # https://palletsprojects.com/p/click/
+# https://click.palletsprojects.com/en/7.x/
 import click
 from psquery import api as psquery_api
 
