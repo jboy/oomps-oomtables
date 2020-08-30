@@ -9,7 +9,7 @@ Command-line Python programs to configure/control the Linux Out-Of-Memory (OOM) 
 
 These programs are command-line-processing, configuration-parsing front-ends to this Python library:
 
-* **psquery:** A Python library for selecting, filtering, sorting & querying processes.
+* **psquery:** A Python3 library for selecting, filtering, sorting & querying processes.
 
 ## Development status
 
