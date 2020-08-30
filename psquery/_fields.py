@@ -33,9 +33,16 @@ def _read_int_from_proc(fname, default_int=None):
 # We require `this_yday` & `this_year` to be localtime *not* UTC, because we
 # are checking the boundaries of days (at midnight, localtime).
 PostProcSettings = namedtuple("PostProcSettings", (
+        # This is the string that will separate command & each arg in
+        # a joined command-line string (field-type "cmds") returned by
+        # post-processing function `_join_cmdline`.
         "cmdline_sep",
+        # These are the "human-readable" size units: base-10 or base-2.
+        # They are provided by function `_get_human_size_units`.
         "human_scale", "human_denom", "human_units", "human_final",
+        # Today's date (localtime), integer values `yday` & `year`.
         "this_yday", "this_year",
+        # Floating-point seconds since the epoch, in UTC, of right now.
         "utc_now"))
 
 
@@ -426,37 +433,52 @@ WorkingDirType = FieldType("WorkingDir",    str,    30, 60, None,   'L',
         "Current Working Directory (absolute path) of process")
 
 
+## Field infos
+Fi = namedtuple("FieldInfo", (
+    # The field code as a 1-character string, or `None` if 1-character code.
+    "code",
+
+    # The FieldType
+    "field_type",
+
+    # The `psutil` attribute name, or our own field-accessor function.
+    "attr_name",
+
+    # A tuple of post-processing functions, or `None` if none needed.
+    "post_proc"))
+
+
 # The master-list of field definitions.
 _ALL_FIELD_DEFS = dict(
-        # NAME  (CODE   FIELD_TYPE          ATTR_NAME or FUNC(Process)                  POST_PROCESSING)
-        adj=    ('a',   OomScoreAdjType,    _read_int_from_proc("oom_score_adj", 0),    None),
-        adjd=   ('A',   OomAdjType,         _read_int_from_proc("oom_adj", 0),          None),
-        cmda=   ('C',   CmdlineArrayType,   "cmdline",                                  None),
-        cmds=   ('c',   CmdlineStringType,  "cmdline",                                  (_join_cmdline,)),
-        ctime=  ('t',   TimeDeltaHumanType, "cpu_times",                                (_sum_cpu_times, _format_time_delta)),
-        ctimes= ('T',   TimeDeltaSecsType,  "cpu_times",                                (_sum_cpu_times, _float_to_int)),
-        dtime=  ('d',   TimeDeltaHumanType, "create_time",                              (_calc_desk_time, _format_time_delta)),
-        dtimes= ('D',   TimeDeltaSecsType,  "create_time",                              (_calc_desk_time, _float_to_int)),
-        #euid=   ('E', "proc.uids()"
-        #euser=  ('e', ???
-        exe=    ('x',   ExeNameType,        "name",                                     None),
-        exep=   ('X',   ExePathNameType,    "exe",                                      None),
-        #gid=    ('g', "proc.gids()"
-        #npgv=   ('n', ???
-        #npgr=   ('n', ???
-        ooms=   ('o',   OomScoreType,       _read_int_from_proc("oom_score", 0),        None),
-        pid=    ('p',   PIDType,            "pid",                                      None),
-        ppid=   ('P',   PIDType,            "ppid",                                     None),
-        rszh=   ('r',   MemSizeHumanType,   "memory_info",                              (_get_rsz, _format_human_size)),
-        rszk=   ('R',   MemSizeKType,       "memory_info",                              (_get_rsz, _bytes_to_kiB)),
-        start=  ('s',   StartTimeHumanType, "create_time",                              (_format_date_time,)),
-        starts= ('S',   StartTimeSecsType,  "create_time",                              (_float_to_int,)),
-        tty=    ('y',   TtyType,            "terminal",                                 None),
-        uid=    ('U',   UIDType,            "uids",                                     (_get_uid,)),
-        user=   ('u',   UsernameType,       "username",                                 None),
-        vszh=   ('v',   MemSizeHumanType,   "memory_info",                              (_get_vsz, _format_human_size)),
-        vszk=   ('V',   MemSizeKType,       "memory_info",                              (_get_vsz, _bytes_to_kiB)),
-        wd=     ('w',   WorkingDirType,     "cwd",                                      None),
+        # NAME  Fi( CODE    FIELD_TYPE          ATTR_NAME or FUNC(Process)                  POST_PROCESSING)
+        adj=    Fi( 'a',    OomScoreAdjType,    _read_int_from_proc("oom_score_adj", 0),    None),
+        adjd=   Fi( 'A',    OomAdjType,         _read_int_from_proc("oom_adj", 0),          None),
+        cmda=   Fi( 'C',    CmdlineArrayType,   "cmdline",                                  None),
+        cmds=   Fi( 'c',    CmdlineStringType,  "cmdline",                                  (_join_cmdline,)),
+        ctime=  Fi( 't',    TimeDeltaHumanType, "cpu_times",                                (_sum_cpu_times, _format_time_delta)),
+        ctimes= Fi( 'T',    TimeDeltaSecsType,  "cpu_times",                                (_sum_cpu_times, _float_to_int)),
+        dtime=  Fi( 'd',    TimeDeltaHumanType, "create_time",                              (_calc_desk_time, _format_time_delta)),
+        dtimes= Fi( 'D',    TimeDeltaSecsType,  "create_time",                              (_calc_desk_time, _float_to_int)),
+        #euid=   Fi( 'E',  "proc.uids()"
+        #euser=  Fi( 'e',  ???
+        exe=    Fi( 'x',    ExeNameType,        "name",                                     None),
+        exep=   Fi( 'X',    ExePathNameType,    "exe",                                      None),
+        #gid=    Fi( 'g',  "proc.gids()"
+        #npgv=   Fi( 'n',  ???
+        #npgr=   Fi( 'n',  ???
+        ooms=   Fi( 'o',    OomScoreType,       _read_int_from_proc("oom_score", 0),        None),
+        pid=    Fi( 'p',    PIDType,            "pid",                                      None),
+        ppid=   Fi( 'P',    PIDType,            "ppid",                                     None),
+        rszh=   Fi( 'r',    MemSizeHumanType,   "memory_info",                              (_get_rsz, _format_human_size)),
+        rszk=   Fi( 'R',    MemSizeKType,       "memory_info",                              (_get_rsz, _bytes_to_kiB)),
+        start=  Fi( 's',    StartTimeHumanType, "create_time",                              (_format_date_time,)),
+        starts= Fi( 'S',    StartTimeSecsType,  "create_time",                              (_float_to_int,)),
+        tty=    Fi( 'y',    TtyType,            "terminal",                                 None),
+        uid=    Fi( 'U',    UIDType,            "uids",                                     (_get_uid,)),
+        user=   Fi( 'u',    UsernameType,       "username",                                 None),
+        vszh=   Fi( 'v',    MemSizeHumanType,   "memory_info",                              (_get_vsz, _format_human_size)),
+        vszk=   Fi( 'V',    MemSizeKType,       "memory_info",                              (_get_vsz, _bytes_to_kiB)),
+        wd=     Fi( 'w',    WorkingDirType,     "cwd",                                      None),
 )
 
 
