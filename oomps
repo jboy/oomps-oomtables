@@ -18,27 +18,28 @@ import click
 from psquery import api as psquery_api
 
 
-class ParsedSelectionCriteria(object):
-    def __init__(self, default=None):
-        self.selection_criteria = set()
-        self.really_all_procs = False
-        self._default = default
-
-    def deliver(self):
-        """Deliver a possibly-empty tuple of parsed selection criteria."""
-        if self.really_all_procs:
-            # Select ALL processes, even processes NOT associated with a TTY.
-            # After this option or arg, all other args are redundant.
-            return ()
-        elif len(self.selection_criteria) > 0:
-            # Convert the `set` to a `tuple` for consistency with the other two
-            # return values.
-            return tuple(self.selection_criteria)
-        else:
-            return (self._default,)
-
-
 _DEFAULT_FIELDS = "user pid ppid start dtime vszh adj ooms cmds"
+
+
+def _help_list_fields(ctx, param, value):
+    """List all fields and exit.
+
+    The beautiful-looking parameters to this function are how Click does
+    "help" options that exit.
+    """
+    # This beautiful boilerplate is how Click does "help" options that exit.
+    if not value or ctx.resilient_parsing:
+        return
+
+    click.echo("Fields that may be queried:")
+    (headers, all_fields) = psquery_api.list_all_fields()
+    # TODO: Format this using the proper Click `HelpFormatter`.
+    click.echo("  %-6s  %-4s  " % headers)
+    for f in all_fields:
+        # TODO: Format this using the proper Click `HelpFormatter`.
+        click.echo("  %-6s  %-4s  " % f)
+
+    ctx.exit()
 
 
 @click.command()
@@ -54,11 +55,11 @@ _DEFAULT_FIELDS = "user pid ppid start dtime vszh adj ooms cmds"
 @click.option('-O', '--rev-sort-by-oom', 'sort_by_field_options', multiple=True, flag_value="-ooms",
         help="Sort by descending OOM Score.")
 
-@click.option('-r', '--sort-by-rss', 'sort_by_field_options', multiple=True, flag_value="rssk",
-        help="Sort by (ascending) Resident Set Size.")
+@click.option('-r', '--sort-by-rsz', 'sort_by_field_options', multiple=True, flag_value="rszk",
+        help="Sort by (ascending) resident set size.")
 
-@click.option('-R', '--rev-sort-by-rss', 'sort_by_field_options', multiple=True, flag_value="-rssk",
-        help="Sort by descending Resident Set Size.")
+@click.option('-R', '--rev-sort-by-rsz', 'sort_by_field_options', multiple=True, flag_value="-rszk",
+        help="Sort by descending resident set size.")
 
 @click.option('-s', '--sort-by-start', 'sort_by_field_options', multiple=True, flag_value="starts",
         help="Sort by (ascending) start time.")
@@ -67,10 +68,14 @@ _DEFAULT_FIELDS = "user pid ppid start dtime vszh adj ooms cmds"
         help="Sort by descending start time.")
 
 @click.option('-v', '--sort-by-vsz', 'sort_by_field_options', multiple=True, flag_value="vszk",
-        help="Sort by (ascending) Virtual Memory Size.")
+        help="Sort by (ascending) virtual memory size.")
 
 @click.option('-V', '--rev-sort-by-vsz', 'sort_by_field_options', multiple=True, flag_value="-vszk",
-        help="Sort by descending Virtual Memory Size.")
+        help="Sort by descending virtual memory size.")
+
+@click.option('--help-list-fields', is_flag=True, is_eager=True, expose_value=False,
+        callback=_help_list_fields,
+        help="List all fields and exit.")
 
 @click.argument('args', nargs=-1)
 def oomps(
@@ -146,6 +151,26 @@ def oomps(
         # Make use of the tuple-nature of namedtuple `QueriedProcess`.
         # Use old-style `("%s %s %s" % tup)` string-formatting.
         click.echo((proc_format % qp)[:terminal_width])
+
+
+class ParsedSelectionCriteria(object):
+    def __init__(self, default=None):
+        self.selection_criteria = set()
+        self.really_all_procs = False
+        self._default = default
+
+    def deliver(self):
+        """Deliver a possibly-empty tuple of parsed selection criteria."""
+        if self.really_all_procs:
+            # Select ALL processes, even processes NOT associated with a TTY.
+            # After this option or arg, all other args are redundant.
+            return ()
+        elif len(self.selection_criteria) > 0:
+            # Convert the `set` to a `tuple` for consistency with the other two
+            # return values.
+            return tuple(self.selection_criteria)
+        else:
+            return (self._default,)
 
 
 def _parse_args(all_procs, really_all_procs, args):

@@ -198,7 +198,7 @@ def _format_time_delta(float_time_delta, post_proc_settings):
         return "+%02d:%02d:%02d" % (num_hours, num_mins, num_secs)
 
 
-def _get_rss(memory_info_tuple, post_proc_settings):
+def _get_rsz(memory_info_tuple, post_proc_settings):
     return memory_info_tuple.rss
 
 
@@ -447,8 +447,8 @@ _ALL_FIELD_DEFS = dict(
         ooms=   ('o',   OomScoreType,       _read_int_from_proc("oom_score", 0),        None),
         pid=    ('p',   PIDType,            "pid",                                      None),
         ppid=   ('P',   PIDType,            "ppid",                                     None),
-        rssh=   ('r',   MemSizeHumanType,   "memory_info",                              (_get_rss, _format_human_size)),
-        rssk=   ('R',   MemSizeKType,       "memory_info",                              (_get_rss, _bytes_to_kiB)),
+        rszh=   ('r',   MemSizeHumanType,   "memory_info",                              (_get_rsz, _format_human_size)),
+        rszk=   ('R',   MemSizeKType,       "memory_info",                              (_get_rsz, _bytes_to_kiB)),
         start=  ('s',   StartTimeHumanType, "create_time",                              (_format_date_time,)),
         starts= ('S',   StartTimeSecsType,  "create_time",                              (_float_to_int,)),
         tty=    ('y',   TtyType,            "terminal",                                 None),
@@ -498,3 +498,12 @@ def get_field_info(field_name):
     except KeyError as e:
         # Invalid field name.
         raise ValueError("invalid field name: %s" % field_name)
+
+
+def list_all_fields():
+    headers = ("NAME", "CODE")
+    all_fields = []
+    for field_name, field_info in _ALL_FIELD_DEFS.items():
+        (code, field_type, attr_name, post_proc) = field_info
+        all_fields.append((field_name, code if code is not None else ""))
+    return (headers, all_fields)

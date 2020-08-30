@@ -10,7 +10,7 @@ from collections import namedtuple
 from operator import attrgetter
 
 # Module `_fields` contains the field definitions.
-from ._fields import get_field_info, get_post_proc_settings
+from ._fields import get_field_info, get_post_proc_settings, list_all_fields
 # Use `_procio` to augment the capabilities of `psutil`.
 from ._procio import read_overcommit_settings
 
