@@ -236,6 +236,10 @@ def _join_cmdline(cmdline_array, pid, post_proc_settings):
     return post_proc_settings.cmdline_sep.join(cmdline_array)
 
 
+def _list_to_tuple(list_val, pid, post_proc_settings):
+    return tuple(list_val)
+
+
 def _sum_cpu_times(cpu_times_tuple, pid, post_proc_settings):
     """Sum the `user` & `system` times in the `psutil.pcputimes` named-tuple.
 
@@ -329,7 +333,7 @@ FieldType = namedtuple("FieldType", (
 # These recommended & likely max-lengths are complete guesses,
 # because I'm trying to provide ANY useful guidance here.
 # These are double the corresponding exe-name-with-path numbers.
-CmdlineArrayType = FieldType("CmdlineArray",    list,   100,    160,    None,   'L',
+CmdlineArrayType = FieldType("CmdlineArray",    tuple,  100,    160,    None,   'L',
         "Command-line (invoked command & args) as an array of strings")
 
 # These recommended & likely max-lengths are complete guesses,
@@ -481,7 +485,9 @@ _ALL_FIELD_DEFS = dict(
 
         cmda=   Fi( 'C',    CmdlineArrayType,
                         "cmdline",
-                        ()
+                        # Return the "command-line as an array" as a `tuple`
+                        # rather than a `list`, so it's immutable.
+                        _list_to_tuple
                 ),
 
         cmds=   Fi( 'c',    CmdlineStringType,
