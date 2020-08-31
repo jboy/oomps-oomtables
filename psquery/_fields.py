@@ -442,8 +442,10 @@ WorkingDirType = FieldType("WorkingDir",    str,    30, 60, None,   'L',
 
 ## Field infos
 Fi = namedtuple("FieldInfo", (
-    # The field code as a 1-character string, or `None` if 1-character code.
-    "code",
+    # The field key as a 1-character string, or `None` if 1-character key.
+    # This is called "key" after the terminology used in `man ps`, when it
+    # talks about "sort keys" & "short keys".
+    "key",
 
     # The FieldType
     "field_type",
@@ -632,9 +634,9 @@ def get_field_info(field_name):
 
 
 def list_all_fields():
-    headers = ("NAME", "CODE")
+    headers = ("NAME", "KEY")
     all_fields = []
     for field_name, field_info in _ALL_FIELD_DEFS.items():
-        code = field_info.code
-        all_fields.append((field_name, code if code is not None else ""))
+        key = field_info.key
+        all_fields.append((field_name, key if key is not None else ""))
     return (headers, all_fields)
