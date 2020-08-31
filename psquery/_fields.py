@@ -13,15 +13,11 @@ from time import time as utc_time_now
 from ._procio import read_int_from_proc_pid
 
 
-## Field-accessor functions: func(Process) -> value
+## Settings for the post-processing functions: named-tuple `PostProcSettings`
 
-def _read_int_from_proc(fname, default_int=None):
-    assert (default_int is None) or isinstance(default_int, int)
-    return read_int_from_proc_pid(fname, default_int)
-
-
-## Post-processing functions: func(value, post_proc_settings) -> value
-
+# These settings are calculated, and a `PostProcSettings` instance is created,
+# when function `get_post_proc_settings` is called.
+#
 # Note:  We store `utc_now` (obtained from `time.time()`, as `utc_time_now()`)
 # because method `Process.create_time()` returns "The process creation time
 # as a floating point number expressed in seconds since the epoch, in UTC."
@@ -30,19 +26,21 @@ def _read_int_from_proc(fname, default_int=None):
 # Note #2:  In contrast, we expect `this_yday` & `this_year` to be *localtime*
 # (as if converted from a UTC time returned by `Process.create_time()` or
 # the Python `time.time()` function, using the `time.localtime()` function).
-# We require `this_yday` & `this_year` to be localtime *not* UTC, because we
+# We require `this_yday` & `this_year` to be localtime, *NOT* UTC, because we
 # are checking the boundaries of days (at midnight, localtime).
 PostProcSettings = namedtuple("PostProcSettings", (
-        # This is the string that will separate command & each arg in
-        # a joined command-line string (field-type "cmds") returned by
-        # post-processing function `_join_cmdline`.
+        # Caller-specified string (defaults to a space character " ") that will
+        # separate the command & each argument in a joined command-line string
+        # (field-type "cmds") returned by post-processing func `_join_cmdline`.
         "cmdline_sep",
-        # These are the "human-readable" size units: base-10 or base-2.
+        # Caller's choice of "human-readable" size units: base-10 or base-2.
         # They are provided by function `_get_human_size_units`.
         "human_scale", "human_denom", "human_units", "human_final",
         # Today's date (localtime), integer values `yday` & `year`.
+        # Calculated and stored, when func `get_post_proc_settings` is called.
         "this_yday", "this_year",
         # Floating-point seconds since the epoch, in UTC, of right now.
+        # Calculated and stored, when func `get_post_proc_settings` is called.
         "utc_now"))
 
 
@@ -81,26 +79,35 @@ def get_post_proc_settings(
             utc_now)
 
 
-def _bytes_to_kiB(num_bytes, post_proc_settings):
+## Field-accessor functions & post-processing functions:
+##  func(value, pid, post_proc_settings) -> value
+
+def _read_int_from_proc(fname, default_int=None):
+    assert (default_int is None) or isinstance(default_int, int)
+    return read_int_from_proc_pid(fname, default_int)
+
+
+def _bytes_to_kiB(num_bytes, pid, post_proc_settings):
     """Convert a number of bytes to the corresp number of "kibibytes" (kiB).
 
     This function is needed because method `Process.memory_info()` states
     "All numbers are expressed in bytes."
      -- https://psutil.readthedocs.io/en/latest/#psutil.Process.memory_info
     """
+    # TODO: Make this support base-10 (ie, `num_bytes // 1000`) if `post_proc_settings` says so?
     return (num_bytes >> 10)
 
 
-def _calc_desk_time(float_creation_time, post_proc_settings):
+def _calc_desk_time(float_creation_time, pid, post_proc_settings):
     return (post_proc_settings.utc_now - float_creation_time)
 
 
-def _float_to_int(float_val, post_proc_settings):
+def _float_to_int(float_val, pid, post_proc_settings):
     # In Python2, built-in `round` returns a `float`; in Python3, an `int`.
     return int(round(float_val))
 
 
-def _format_date_time(float_date_time, post_proc_settings):
+def _format_date_time(float_date_time, pid, post_proc_settings):
     """Format the date/time into a human-readable representation string.
 
     This human-readable format was designed to make it easy to differentiate
@@ -125,7 +132,7 @@ def _format_date_time(float_date_time, post_proc_settings):
         return strftime("%Y-b-%d ", full_date)
 
 
-def _format_human_size(num_bytes, post_proc_settings):
+def _format_human_size(num_bytes, pid, post_proc_settings):
     # Based upon https://stackoverflow.com/a/1094933
     scale = post_proc_settings.human_scale
     denom = post_proc_settings.human_denom
@@ -140,7 +147,7 @@ def _format_human_size(num_bytes, post_proc_settings):
     return "%.1f %s" % (num, final)
 
 
-def _format_time_delta(float_time_delta, post_proc_settings):
+def _format_time_delta(float_time_delta, pid, post_proc_settings):
     """Format the time-delta into a human-readable representation string.
 
     This representation "floats" (in the same sense as floating-point numbers):
@@ -205,11 +212,11 @@ def _format_time_delta(float_time_delta, post_proc_settings):
         return "+%02d:%02d:%02d" % (num_hours, num_mins, num_secs)
 
 
-def _get_rsz(memory_info_tuple, post_proc_settings):
+def _get_rsz(memory_info_tuple, pid, post_proc_settings):
     return memory_info_tuple.rss
 
 
-def _get_uid(uids_tuple, post_proc_settings):
+def _get_uid(uids_tuple, pid, post_proc_settings):
     # "The real, effective and saved user ids of this process as a named tuple.
     # This is the same as os.getresuid but can be used for any process PID."
     #  -- https://psutil.readthedocs.io/en/latest/#psutil.Process.uids
@@ -221,15 +228,15 @@ def _get_uid(uids_tuple, post_proc_settings):
     return ruid
 
 
-def _get_vsz(memory_info_tuple, post_proc_settings):
+def _get_vsz(memory_info_tuple, pid, post_proc_settings):
     return memory_info_tuple.vms
 
 
-def _join_cmdline(cmdline_array, post_proc_settings):
+def _join_cmdline(cmdline_array, pid, post_proc_settings):
     return post_proc_settings.cmdline_sep.join(cmdline_array)
 
 
-def _sum_cpu_times(cpu_times_tuple, post_proc_settings):
+def _sum_cpu_times(cpu_times_tuple, pid, post_proc_settings):
     """Sum the `user` & `system` times in the `psutil.pcputimes` named-tuple.
 
     To quote the docstring for method `psutil.Process.cpu_times()`:
@@ -441,44 +448,146 @@ Fi = namedtuple("FieldInfo", (
     # The FieldType
     "field_type",
 
-    # The `psutil` attribute name, or our own field-accessor function.
-    "attr_name",
+    # A tuple of `psutil` attribute names that must be queried for this field.
+    # May be the empty tuple if this field value is not available from `psutil`.
+    # To increase readability and decrease boilerplate, if there's just
+    # a single tuple element, the surrounding tuple can be elided.
+    "attr_names",
 
-    # A tuple of post-processing functions, or `None` if none needed.
-    "post_proc"))
+    # A tuple of field-accessor / post-processing functions, or empty tuple.
+    # Each function must take parameters `(value, pid, post_proc_settings)`
+    # and will return a new value.
+    # To increase readability & decrease boilerplate, if there's just
+    # a single tuple element, the surrounding tuple can be elided.
+    "acc_funcs"))
 
 
 # The master-list of field definitions.
 _ALL_FIELD_DEFS = dict(
-        # NAME  Fi( CODE    FIELD_TYPE          ATTR_NAME or FUNC(Process)                  POST_PROCESSING)
-        adj=    Fi( 'a',    OomScoreAdjType,    _read_int_from_proc("oom_score_adj", 0),    None),
-        adjd=   Fi( 'A',    OomAdjType,         _read_int_from_proc("oom_adj", 0),          None),
-        cmda=   Fi( 'C',    CmdlineArrayType,   "cmdline",                                  None),
-        cmds=   Fi( 'c',    CmdlineStringType,  "cmdline",                                  (_join_cmdline,)),
-        ctime=  Fi( 't',    TimeDeltaHumanType, "cpu_times",                                (_sum_cpu_times, _format_time_delta)),
-        ctimes= Fi( 'T',    TimeDeltaSecsType,  "cpu_times",                                (_sum_cpu_times, _float_to_int)),
-        dtime=  Fi( 'd',    TimeDeltaHumanType, "create_time",                              (_calc_desk_time, _format_time_delta)),
-        dtimes= Fi( 'D',    TimeDeltaSecsType,  "create_time",                              (_calc_desk_time, _float_to_int)),
+        # NAME  Fi( CODE    FIELD_TYPE
+        adj=    Fi( 'a',    OomScoreAdjType,
+                        # ATTR_NAMES
+                        (),
+                        # ACCESSOR / POST-PROCESSING FUNCS
+                        _read_int_from_proc("oom_score_adj", 0)
+                ),
+
+        adjd=   Fi( 'A',    OomAdjType,
+                        (),
+                        _read_int_from_proc("oom_adj", 0)
+                ),
+
+        cmda=   Fi( 'C',    CmdlineArrayType,
+                        "cmdline",
+                        ()
+                ),
+
+        cmds=   Fi( 'c',    CmdlineStringType,
+                        "cmdline",
+                        _join_cmdline
+                ),
+
+        ctime=  Fi( 't',    TimeDeltaHumanType,
+                        "cpu_times",
+                        (_sum_cpu_times, _format_time_delta)
+                ),
+
+        ctimes= Fi( 'T',    TimeDeltaSecsType,
+                        "cpu_times",
+                        (_sum_cpu_times, _float_to_int)
+                ),
+
+        dtime=  Fi( 'd',    TimeDeltaHumanType,
+                        "create_time",
+                        (_calc_desk_time, _format_time_delta)
+                ),
+
+        dtimes= Fi( 'D',    TimeDeltaSecsType,
+                        "create_time",
+                        (_calc_desk_time, _float_to_int)
+                ),
+
         #euid=   Fi( 'E',  "proc.uids()"
         #euser=  Fi( 'e',  ???
-        exe=    Fi( 'x',    ExeNameType,        "name",                                     None),
-        exep=   Fi( 'X',    ExePathNameType,    "exe",                                      None),
+
+        exe=    Fi( 'x',    ExeNameType,
+                        "name",
+                        ()
+                ),
+
+        exep=   Fi( 'X',    ExePathNameType,
+                        "exe",
+                        ()
+                ),
+
         #gid=    Fi( 'g',  "proc.gids()"
         #npgv=   Fi( 'n',  ???
         #npgr=   Fi( 'n',  ???
-        ooms=   Fi( 'o',    OomScoreType,       _read_int_from_proc("oom_score", 0),        None),
-        pid=    Fi( 'p',    PIDType,            "pid",                                      None),
-        ppid=   Fi( 'P',    PIDType,            "ppid",                                     None),
-        rszh=   Fi( 'r',    MemSizeHumanType,   "memory_info",                              (_get_rsz, _format_human_size)),
-        rszk=   Fi( 'R',    MemSizeKType,       "memory_info",                              (_get_rsz, _bytes_to_kiB)),
-        start=  Fi( 's',    StartTimeHumanType, "create_time",                              (_format_date_time,)),
-        starts= Fi( 'S',    StartTimeSecsType,  "create_time",                              (_float_to_int,)),
-        tty=    Fi( 'y',    TtyType,            "terminal",                                 None),
-        uid=    Fi( 'U',    UIDType,            "uids",                                     (_get_uid,)),
-        user=   Fi( 'u',    UsernameType,       "username",                                 None),
-        vszh=   Fi( 'v',    MemSizeHumanType,   "memory_info",                              (_get_vsz, _format_human_size)),
-        vszk=   Fi( 'V',    MemSizeKType,       "memory_info",                              (_get_vsz, _bytes_to_kiB)),
-        wd=     Fi( 'w',    WorkingDirType,     "cwd",                                      None),
+
+        ooms=   Fi( 'o',    OomScoreType,
+                        (),
+                        _read_int_from_proc("oom_score", 0)
+                ),
+
+        pid=    Fi( 'p',    PIDType,
+                        "pid",
+                        ()
+                ),
+
+        ppid=   Fi( 'P',    PIDType,
+                        "ppid",
+                        ()
+                ),
+
+        rszh=   Fi( 'r',    MemSizeHumanType,
+                        "memory_info",
+                        (_get_rsz, _format_human_size)
+                ),
+
+        rszk=   Fi( 'R',    MemSizeKType,
+                        "memory_info",
+                        (_get_rsz, _bytes_to_kiB)
+                ),
+
+        start=  Fi( 's',    StartTimeHumanType,
+                        "create_time",
+                        _format_date_time
+                ),
+
+        starts= Fi( 'S',    StartTimeSecsType,
+                        "create_time",
+                        _float_to_int
+                ),
+
+        tty=    Fi( 'y',    TtyType,
+                        "terminal",
+                        ()
+                ),
+
+        uid=    Fi( 'U',    UIDType,
+                        "uids",
+                        _get_uid
+                ),
+
+        user=   Fi( 'u',    UsernameType,
+                        "username",
+                        ()
+                ),
+
+        vszh=   Fi( 'v',    MemSizeHumanType,
+                        "memory_info",
+                        (_get_vsz, _format_human_size)
+                ),
+
+        vszk=   Fi( 'V',    MemSizeKType,
+                        "memory_info",
+                        (_get_vsz, _bytes_to_kiB)
+                ),
+
+        wd=     Fi( 'w',    WorkingDirType,
+                        "cwd",
+                        ()
+                ),
 )
 
 
@@ -526,6 +635,6 @@ def list_all_fields():
     headers = ("NAME", "CODE")
     all_fields = []
     for field_name, field_info in _ALL_FIELD_DEFS.items():
-        (code, field_type, attr_name, post_proc) = field_info
+        code = field_info.code
         all_fields.append((field_name, code if code is not None else ""))
     return (headers, all_fields)

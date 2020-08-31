@@ -88,13 +88,69 @@ def _get_field_accessors(field_names, psutil_attr_names=None):
     # While we're iterating, check the validity of each supplied field name.
     for field_name in field_names:
         # If the field name is not valid, `ValueError` will be raised.
-        (field_code, field_type, attr_name_or_func, post_processing) = get_field_info(field_name)
+        field_info = get_field_info(field_name)
+        field_type = field_info.field_type
 
-        is_attr_name = isinstance(attr_name_or_func, str)
-        field_accessors.append((field_name, is_attr_name, attr_name_or_func, post_processing))
+        attr_names = field_info.attr_names
+        if isinstance(attr_names, str):
+            # It's just a single attribute name.
+            # For speed per-process, optimise for this common case by handling
+            # single attribute names without a for-loop.
+            single_attr_name = attr_names
+            multi_attr_names = None
+            psutil_attr_names.add(single_attr_name)
+        elif len(attr_names) == 0:
+            # It's an empty tuple, containing *no* attribute names.
+            # For speed per-process, optimise for this common case by handling
+            # empty tuples without a for-loop.
+            single_attr_name = None
+            multi_attr_names = None
+        elif len(attr_names) == 1:
+            # It's a tuple containing just a single attribute name.
+            # For speed per-process, optimise for this common case by handling
+            # single attribute names without a for-loop.
+            single_attr_name = attr_names[0]
+            multi_attr_names = None
+            assert isinstance(single_attr_name, str)
+            psutil_attr_names.add(single_attr_name)
+        else:
+            # It's a tuple of >= 2 attribute names.
+            single_attr_name = None
+            multi_attr_names = attr_names
+            for a in multi_attr_names:
+                assert isinstance(a, str)
+                psutil_attr_names.add(a)
+
+        acc_funcs = field_info.acc_funcs
+        if hasattr(acc_funcs, "__call__"):
+            # It's just a single accessor function.
+            # For speed per-process, optimise for this common case by handling
+            # single accessor functions without a for-loop.
+            single_acc_func = acc_funcs
+            multi_acc_funcs = None
+        elif len(acc_funcs) == 0:
+            # It's an empty tuple, containing *no* accessor functions.
+            # For speed per-process, optimise for this common case by handling
+            # empty tuples without a for-loop.
+            single_acc_func = None
+            multi_acc_funcs = None
+        elif len(acc_funcs) == 1:
+            # It's a tuple containing just a single accessor function.
+            # For speed per-process, optimise for this common case by handling
+            # single accessor functions without a for-loop.
+            single_acc_func = acc_funcs[0]
+            multi_acc_funcs = None
+            assert hasattr(single_acc_func, "__call__")
+        else:
+            # It's a tuple of >= 2 accessor functions.
+            single_acc_func = None
+            multi_acc_funcs = acc_funcs
+            for a in multi_acc_funcs:
+                assert hasattr(a, "__call__")
+
+        field_accessors.append((field_name,
+                single_attr_name, multi_attr_names, single_acc_func, multi_acc_funcs))
         field_types.append(field_type)
-        if is_attr_name:
-            psutil_attr_names.add(attr_name_or_func)
 
     return (tuple(field_accessors), tuple(field_types), psutil_attr_names)
 
@@ -127,24 +183,38 @@ def _select_processes(AllFields, field_accessors, psutil_attr_names, selection_f
     # [3] https://psutil.readthedocs.io/en/latest/#psutil.Process.oneshot
     psutil_attr_names = tuple(psutil_attr_names)  # for speed
     for proc in psutil_process_iter(psutil_attr_names):
+        pid = proc.pid
         attr_dict = proc.info
-        for field_idx, (field_name, is_attr_name, accessor, post_processing) in enumerate(field_accessors):
-            # Note:  There might be more fields requested than psutil attributes
-            # returned, because not all the fields that can be requested, can be
-            # obtained directly from psutil Process results.  Also, some fields
-            # use the same psutil attribute, which would also cause a disparity.
-            #
-            # Furthermore, some psutil attributes might be used for sorting,
-            # not for requested fields, so that's another reason for a mismatch.
-            #
-            # So there's no point in trying to "zip" the list of fields directly
-            # with the iterable `attr_dict.items()`.
-            field_value = attr_dict[accessor] if is_attr_name else accessor(proc)
+        # Note:  There might be more fields requested than psutil attributes
+        # returned, because not all the fields that can be requested, can be
+        # obtained directly from psutil Process results.  Also, some fields
+        # use the same psutil attribute, which would also cause a disparity.
+        #
+        # Furthermore, some psutil attributes might be used for sorting,
+        # not for requested fields, so that's another reason for a mismatch.
+        #
+        # So there's no point in trying to "zip" the list of fields directly
+        # with the iterable `attr_dict.items()`.
+        for field_idx, \
+                (field_name, single_attr_name, multi_attr_names, single_acc_func, multi_acc_funcs) \
+                in enumerate(field_accessors):
 
-            # `post_processing` will be `None` or a sequence of functions.
-            if post_processing is not None:
-                for pp_func in post_processing:
-                    field_value = pp_func(field_value, post_proc_settings)
+            field_value = None
+            # First, extract any psutil attributes.
+            if single_attr_name is not None:
+                field_value = attr_dict[single_attr_name]
+            elif multi_attr_names is not None:
+                # It will be a multi-value field value.
+                field_value = tuple(attr_dict[a] for a in multi_attr_names)
+
+            # Now apply field-accessor functions or post-processing functions.
+            # These functions: (value, pid, post_proc_settings) -> value
+            if single_acc_func is not None:
+                field_value = single_acc_func(field_value, pid, post_proc_settings)
+            elif multi_acc_funcs is not None:
+                # There will be multiple access or post-processing functions.
+                for f in multi_acc_funcs:
+                    field_value = f(field_value, pid, post_proc_settings)
 
             # Update the elements of the pre-allocated list in-place.
             field_values[field_idx] = field_value

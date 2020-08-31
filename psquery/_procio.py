@@ -41,12 +41,12 @@ def read_int_from_proc_pid(fname, default_int=None):
     """Return a function that reads an `int` from file "/proc/${pid}/${fname}".
 
     The `fname` is supplied to *this* function (so that the returned function
-    will read the same `fname` per-PID) but the `pid` will be supplied to the
-    returned function when it is being called (so the returned function can be
-    called per-process).
+    will read from the same `fname` per-PID) but the `pid` will be supplied to
+    the returned function when it's called (so that the returned function can
+    be called per-process).
 
-    To obtain the PID, the returned function will attempt to access attribute
-    `process.pid` of its parameter `process`.
+    The returned function takes parameters `(ignore, pid, ignore)` so that it
+    may be called as a field-accessor / post-processing function.
     """
     # Verify that `default_int` is either `None` or an `int`, to ensure
     # that this function returns an `int` or raises an exception trying.
@@ -54,8 +54,8 @@ def read_int_from_proc_pid(fname, default_int=None):
         raise ValueError("invalid `default_int`: %s" % default_int)
 
     fullpath_pid_template = "/proc/%%d/%s" % fname
-    def _impl(process):
-        fullpath = fullpath_pid_template % process.pid
+    def _impl(ignore_1, pid, ignore_3):
+        fullpath = fullpath_pid_template % pid
         return _read_int_from_file(fullpath, default_int)
     return _impl
 
