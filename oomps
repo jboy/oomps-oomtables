@@ -18,7 +18,9 @@ import click
 from psquery import api as psquery_api
 
 
-_DEFAULT_FIELDS = "user pid ppid start dtime vszh adj ooms cmds"
+def _get_default_fields():
+    _default_fields = "user pid ppid start dtime vszh adj ooms cmds"
+    return _default_fields.split()
 
 
 def _help_list_fields(ctx, param, value):
@@ -31,13 +33,16 @@ def _help_list_fields(ctx, param, value):
     if not value or ctx.resilient_parsing:
         return
 
-    click.echo("Fields that may be queried:")
+    click.echo("Fields that may be queried: (default fields marked by '*')")
     (headers, all_fields) = psquery_api.list_all_fields()
+    default_fields = set(_get_default_fields())
     # TODO: Format this using the proper Click `HelpFormatter`.
-    click.echo("  %-6s  %-4s  " % headers)
+    click.echo("    %-6s  %-4s  " % headers)
     for f in all_fields:
+        (name, key) = f
+        is_default_field = (name in default_fields)
         # TODO: Format this using the proper Click `HelpFormatter`.
-        click.echo("  %-6s  %-4s  " % f)
+        click.echo("  %s %-6s  %-4s  " % ('*' if is_default_field else ' ', name, key))
 
     ctx.exit()
 
@@ -185,7 +190,7 @@ def _parse_args(all_procs, really_all_procs, args):
     default_criterion = psquery_api.ProcessUidEquals(this_process_ruid)
     parsed_selection_criteria = ParsedSelectionCriteria(default_criterion)
 
-    fields_to_query = _DEFAULT_FIELDS.split()
+    fields_to_query = _get_default_fields()
 
     if really_all_procs:
         # Select ALL processes, even processes NOT associated with a TTY.
