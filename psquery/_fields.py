@@ -441,31 +441,34 @@ UsernameType = FieldType("Username",    str,    10, 20, 32, 'L',
 # These recommended & likely max-lengths are complete guesses,
 # because I'm trying to provide ANY useful guidance here.
 WorkingDirType = FieldType("WorkingDir",    str,    30, 60, None,   'L',
-        "Current Working Directory (absolute path) of process")
+        "Current working directory (absolute path) of process")
 
 
 ## Field infos
 Fi = namedtuple("FieldInfo", (
-    # The field key as a 1-character string, or `None` if 1-character key.
-    # This is called "key" after the terminology used in `man ps`, when it
-    # talks about "sort keys" & "short keys".
-    "key",
+        # The field key as a 1-character string, or `None` if 1-character key.
+        # This is called "key" after the terminology used in `man ps`, when it
+        # talks about "sort keys" & "short keys".
+        "key",
 
-    # The FieldType
-    "field_type",
+        # The FieldType
+        "field_type",
 
-    # A tuple of `psutil` attribute names that must be queried for this field.
-    # May be the empty tuple if this field value is not available from `psutil`.
-    # To increase readability and decrease boilerplate, if there's just
-    # a single tuple element, the surrounding tuple can be elided.
-    "attr_names",
+        # A tuple of `psutil` attribute names that must be queried for this field.
+        # May be the empty tuple if this field value is not available from `psutil`.
+        # To increase readability and decrease boilerplate, if there's just
+        # a single tuple element, the surrounding tuple can be elided.
+        "attr_names",
 
-    # A tuple of field-accessor / post-processing functions, or empty tuple.
-    # Each function must take parameters `(value, pid, post_proc_settings)`
-    # and will return a new value.
-    # To increase readability & decrease boilerplate, if there's just
-    # a single tuple element, the surrounding tuple can be elided.
-    "acc_funcs"))
+        # A tuple of field-accessor / post-processing functions, or empty tuple.
+        # Each function must take parameters `(value, pid, post_proc_settings)`
+        # and will return a new value.
+        # To increase readability & decrease boilerplate, if there's just
+        # a single tuple element, the surrounding tuple can be elided.
+        "acc_funcs",
+
+        # A human-readable description of the FieldInfo (like help).
+        "descr"))
 
 
 # The master-list of field definitions.
@@ -475,44 +478,52 @@ _ALL_FIELD_DEFS = dict(
                         # ATTR_NAMES
                         (),
                         # ACCESSOR / POST-PROCESSING FUNCS
-                        _read_int_from_proc("oom_score_adj", 0)
+                        _read_int_from_proc("oom_score_adj", 0),
+                        "OOM Score Adjustment (Linux 2.6.36 and later): [-1000, 1000]"
                 ),
 
         adjd=   Fi( 'A',    OomAdjType,
                         (),
-                        _read_int_from_proc("oom_adj", 0)
+                        _read_int_from_proc("oom_adj", 0),
+                        "OOM Adjustment (pre-Linux 2.6.36; now deprecated): [-17, +15]"
                 ),
 
         cmda=   Fi( 'C',    CmdlineArrayType,
                         "cmdline",
                         # Return the "command-line as an array" as a `tuple`
                         # rather than a `list`, so it's immutable.
-                        _list_to_tuple
+                        _list_to_tuple,
+                        "Command-line (invoked command & args) as an array of strings"
                 ),
 
         cmds=   Fi( 'c',    CmdlineStringType,
                         "cmdline",
-                        _join_cmdline
+                        _join_cmdline,
+                        "Command-line (invoked command & args) joined as a single string"
                 ),
 
         ctime=  Fi( 't',    TimeDeltaHumanType,
                         "cpu_times",
-                        (_sum_cpu_times, _format_time_delta)
+                        (_sum_cpu_times, _format_time_delta),
+                        "Accumulated CPU time, user + system, in human-readable format"
                 ),
 
         ctimes= Fi( 'T',    TimeDeltaSecsType,
                         "cpu_times",
-                        (_sum_cpu_times, _float_to_int)
+                        (_sum_cpu_times, _float_to_int),
+                        "Accumulated CPU time, user + system, in integer seconds"
                 ),
 
         dtime=  Fi( 'd',    TimeDeltaHumanType,
                         "create_time",
-                        (_calc_desk_time, _format_time_delta)
+                        (_calc_desk_time, _format_time_delta),
+                        "\"Desk\" time since the process started, in human-readable format"
                 ),
 
         dtimes= Fi( 'D',    TimeDeltaSecsType,
                         "create_time",
-                        (_calc_desk_time, _float_to_int)
+                        (_calc_desk_time, _float_to_int),
+                        "\"Desk\" time since the process started, in integer seconds"
                 ),
 
         #euid=   Fi( 'E',  "proc.uids()"
@@ -520,12 +531,14 @@ _ALL_FIELD_DEFS = dict(
 
         exe=    Fi( 'x',    ExeNameType,
                         "name",
-                        ()
+                        (),
+                        "Executable name (without path)"
                 ),
 
         exep=   Fi( 'X',    ExePathNameType,
                         "exe",
-                        ()
+                        (),
+                        "Executable name (with absolute path)"
                 ),
 
         #gid=    Fi( 'g',  "proc.gids()"
@@ -534,67 +547,80 @@ _ALL_FIELD_DEFS = dict(
 
         ooms=   Fi( 'o',    OomScoreType,
                         (),
-                        _read_int_from_proc("oom_score", 0)
+                        _read_int_from_proc("oom_score", 0),
+                        "Linux OOM Score: [0, 1000]"
                 ),
 
         pid=    Fi( 'p',    PIDType,
                         "pid",
-                        ()
+                        (),
+                        "Process ID (integer)"
                 ),
 
         ppid=   Fi( 'P',    PIDType,
                         "ppid",
-                        ()
+                        (),
+                        "Parent process ID (integer)"
                 ),
 
         rszh=   Fi( 'r',    MemSizeHumanType,
                         "memory_info",
-                        (_get_rsz, _format_human_size)
+                        (_get_rsz, _format_human_size),
+                        "Resident set size in memory, in human-readable format"
                 ),
 
         rszk=   Fi( 'R',    MemSizeKType,
                         "memory_info",
-                        (_get_rsz, _bytes_to_kiB)
+                        (_get_rsz, _bytes_to_kiB),
+                        "Resident set size in memory, in KB or KiB"
                 ),
 
         start=  Fi( 's',    StartTimeHumanType,
                         "create_time",
-                        _format_date_time
+                        _format_date_time,
+                        "Start-time of process (UTC), in human-readable format"
                 ),
 
         starts= Fi( 'S',    StartTimeSecsType,
                         "create_time",
-                        _float_to_int
+                        _float_to_int,
+                        "Start-time of process (UTC), in seconds since UNIX epoch"
                 ),
 
         tty=    Fi( 'y',    TtyType,
                         "terminal",
-                        ()
+                        (),
+                        "Terminal associated with the process"
                 ),
 
         uid=    Fi( 'U',    UIDType,
                         "uids",
-                        _get_uid
+                        _get_uid,
+                        "User ID (integer)"
                 ),
 
         user=   Fi( 'u',    UsernameType,
                         "username",
-                        ()
+                        (),
+                        "Username (string)"
                 ),
 
         vszh=   Fi( 'v',    MemSizeHumanType,
                         "memory_info",
-                        (_get_vsz, _format_human_size)
+                        (_get_vsz, _format_human_size),
+                        "Virtual memory size, in human-readable format"
                 ),
 
         vszk=   Fi( 'V',    MemSizeKType,
                         "memory_info",
-                        (_get_vsz, _bytes_to_kiB)
+                        (_get_vsz, _bytes_to_kiB),
+                        "Virtual memory size, in KB or KiB"
                 ),
 
         wd=     Fi( 'w',    WorkingDirType,
                         "cwd",
-                        ()
+                        (),
+                        "Current working directory (absolute path) of process"
                 ),
 )
 
@@ -640,9 +666,9 @@ def get_field_info(field_name):
 
 
 def list_all_fields():
-    headers = ("NAME", "KEY")
+    headers = ("NAME", "KEY", "DESCR")
     all_fields = []
     for field_name, field_info in _ALL_FIELD_DEFS.items():
         key = field_info.key
-        all_fields.append((field_name, key if key is not None else ""))
+        all_fields.append((field_name, key if key is not None else "", field_info.descr))
     return (headers, all_fields)

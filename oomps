@@ -37,12 +37,12 @@ def _help_list_fields(ctx, param, value):
     (headers, all_fields) = psquery_api.list_all_fields()
     default_fields = set(_get_default_fields())
     # TODO: Format this using the proper Click `HelpFormatter`.
-    click.echo("    %-6s  %-4s  " % headers)
+    click.echo("    %-7s %-3s %s" % headers)
     for f in all_fields:
-        (name, key) = f
+        (name, key, descr) = f
         is_default_field = (name in default_fields)
         # TODO: Format this using the proper Click `HelpFormatter`.
-        click.echo("  %s %-6s  %-4s  " % ('*' if is_default_field else ' ', name, key))
+        click.echo("  %s %-7s %-3s %s" % ('*' if is_default_field else ' ', name, key, descr))
 
     ctx.exit()
 
