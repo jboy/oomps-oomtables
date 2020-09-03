@@ -8,6 +8,7 @@
 """Like `ps` or `top`, but for per-process memory usage & Linux OOM Score."""
 
 import os
+import re
 import shutil
 
 # https://github.com/pallets/click
@@ -90,11 +91,22 @@ def oomps(
         args):
     """Like `ps` or `top`, but for per-process memory usage & Linux OOM Score.
 
+    There may be any number of ARGS, in any order.  ARGS are used for
+    selecting processes and specifying which fields should be queried.
+
     \b
-    ARGS might be any of:
-      ~ : Select only processes owned by the caller's UID.
-      / : Select all processes that have a TTY.
-      // : Select ALL processes, even without a TTY.
+    ARGS for selecting processes may be any of:
+      ~                 Select processes owned by the caller's UID.
+      %                 Select all processes that have a TTY.
+      %%                Select ALL processes, even without a TTY.
+      <pid>             Select process with integer PID `pid`.
+      <pid>,<pid>       Select processes with PIDs in comma-separated list.
+
+    A process is selected if ANY of the selection criteria matches.
+
+    When an argument accepts a comma-separated list, the list may instead
+    be whitespace-separated if the caller prefers (but a single list may not
+    contain both commas and whitespace).
     """
     (parsed_selection_criteria, fields_to_query) = \
             _parse_args(all_procs, really_all_procs, args)
@@ -185,38 +197,155 @@ def _parse_args(all_procs, really_all_procs, args):
      - the initial process selection criteria (before any filtering options)
      - the fields to query
     """
+    # The (real) UID of the user who called this function ("the caller").
     this_process_ruid = os.getuid()
+    # The home directory of the user who called this function.
     this_process_home = os.path.expanduser("~")
+    # If no selection criteria are specified, default to matching processes
+    # that have (real) UID matching the caller.
     default_criterion = psquery_api.ProcessUidEquals(this_process_ruid)
-    parsed_selection_criteria = ParsedSelectionCriteria(default_criterion)
 
+    parsed_selection_criteria = ParsedSelectionCriteria(default_criterion)
     fields_to_query = _get_default_fields()
 
-    if really_all_procs:
+    if really_all_procs:  # option "-A"
         # Select ALL processes, even processes NOT associated with a TTY.
         # After this option or arg, all other args are redundant.
         parsed_selection_criteria.really_all_procs = True
-    elif all_procs:
+    elif all_procs:  # option "-a"
         parsed_selection_criteria.selection_criteria.add(psquery_api.ProcessHasTty())
 
-    # Input:    Bash & Python `os.path.expanduser()`:
-    # ~         /home/jboy
-    # ~tom      /home/tom
-    # ~,        ~,
-    # ~,tom     ~,tom
-    # ~,~tom    ~,~tom
-    # ~tom,     ~tom,
-    for arg in args:
-        if arg == "//":
+    # Note:  Bash shell will expand/replace a command-line argument tilde (`~`)
+    # with the caller's home-directory, in-place (ie, replace the `~` argument
+    # so that we never see a `~` string).
+    #
+    #   Input:    Bash & Python `os.path.expanduser()`:
+    #   ~         /home/jboy
+    #   ~tom      /home/tom
+    #   ~,        ~,
+    #   ~,tom     ~,tom
+    #   ~,~tom    ~,~tom
+    #   ~tom,     ~tom,
+    #
+    # Further, when the caller specifies `~` or `~username` as a command-line
+    # argument, we might instead receive an argument that starts with a slash
+    # (`/`).  So we also can't use `/` as the start of some other command.
+    #
+    # Here are some other special characters in Shell that we can't use at all
+    # (unless surrounded by quotes, sometimes only single quotes):
+    #  - `#` (comment until end-of-line)
+    #  - `;` (statement separator)
+    #  - `!` (invert the exit status of a command; also, history substitution)
+    #  - `$` (shell variable)
+    #  - `&` (run job in background)
+    #  - `|` (pipe)
+    #  - `>` and `<` (redirection to/from files)
+    #  - `?` and `*` (shell filename wildcards)
+    # From https://tldp.org/LDP/abs/html/special-chars.html
+    #
+    # We also can't use `:` as a stand-alone (it's a shell built-in command,
+    # synonymous with `true`).
+    #
+    # That leaves:
+    #  - `,`
+    #  - `.`
+    #  - `=`
+    #  - `+`
+    #  - `^`
+    #  - `@`
+    #  - `%`
+    #
+    # So, we'll use the following syntax:
+    #  - `~user`: match processes owned by user named `user`
+    #  - `~+123`: match processes owned by user with UID 123
+    #  - `~~user`: match processes owned by effective user named `user`
+    #  - `~~+123`: match processes owned by effective user with UID 123
+    #  - `123`: match process with PID 123
+    #  - `^123`: match process with Parent PID 123 (inspired by Git syntax)
+    #  - `%comm`: match all TTY processes whose exe name starts with `comm`
+    #     (Note that executable names might start with integer digits.)
+    #  - `%%comm`: match ALL processes whose exe name starts with `comm`
+    #  - `.field`: prepend new field to list of fields to query
+    #  - `.newfield/oldfield`: replace `oldfield` with `newfield` in-place
+    #  - `./oldfield`: remove `oldfield`
+    #  - `..field,field`: prepend multiple fields to list of fields to query
+    #  - `==field1,field2`: override the whole list of fields
+    #
+    # Note #2:  We will allow per-argument lists to be separated by EITHER
+    # one comma OR one-or-more spaces, but not both (for our own sanity);
+    # or else it's too much of a chore to detect that ", ," or ",  ," (etc)
+    # is invalid.
+    for arg_num, arg in enumerate(args, start=1):
+        # Ensure that no argument list contains both commas AND spaces.
+        if ',' in arg and re.search("\\s", arg):
+            raise click.BadParameter(
+                    "can't separate a list with commas AND spaces: %s" % arg,
+                    param_hint=("arg %d" % arg_num))
+        # Ensure that no argument contains multiple adjacent commas (ie, `,,`).
+        # This is just a good old-fashioned syntax error, but we handle it here
+        # so we only need to check and handle it once.
+        if ',,' in arg:
+            raise click.BadParameter(
+                    "adjacent commas with no value between: %s" % arg,
+                    param_hint=("arg %d" % arg_num))
+
+        if arg == "%%":
             # Select ALL processes, even processes NOT associated with a TTY.
             # After this option or arg, all other args are redundant.
             parsed_selection_criteria.really_all_procs = True
-        elif arg == "/":
+        elif arg == "%":
             parsed_selection_criteria.selection_criteria.add(psquery_api.ProcessHasTty())
         elif arg == "~" or arg == this_process_home:
+            # Match the caller's UID.
             parsed_selection_criteria.selection_criteria.add(default_criterion)
+        else:
+            # The only type of argument that doesn't begin with a single
+            # well-defined character or multi-character sequence, is the
+            # only type of argument that we haven't yet checked:  Match an
+            # integer Process ID (or match a comma/space-separated sequence
+            # of integers, to match several Process IDs).
+            #
+            # If this doesn't match, then the argument is invalid.
+            process_ids = _try_match_pid_list(arg_num, arg)
+            for pid in process_ids:
+                parsed_selection_criteria.selection_criteria.add(psquery_api.ProcessPidEquals(pid))
 
     return (parsed_selection_criteria, fields_to_query)
+
+
+def _try_match_pid_list(arg_num, arg):
+    """Match a sequence of 1 or more integer PIDs, separated by spaces or commas.
+
+    We only match numeric digits (without allowing preceding `+` or `-` signs)
+    because we use integers preceded by a `+` sign to indicate UIDs (so they
+    can't be confused with usernames that just happen to be all-digits); and
+    we use leading `-` signs only for options.
+
+    This is why we don't just use the Python `int()` function for this check
+    -- because Python `int()` allows preceding `+` & `-` signs.
+
+    We ignore leading whitespace, as long as there is eventually a PID integer.
+    (We're trying to be flexible here, because we want to allow the caller some
+    latitude in how this sequence of PIDs was generated.)
+
+    We should already have checked that this arg does not contain:
+      - multiple adjacent commas
+      - a mixture of commas and spaces.
+    """
+    # Replaces commas with spaces, so we only need to do one split.
+    # Note that `.split()` also strips any leading & trailing whitespace.
+    tokens = arg.replace(",", " ").split()
+    pid_list = []
+    for tok in tokens:
+        # Match numeric digits only.
+        if not tok.isdigit():
+            # Despite our flexibility, this is an invalid argument.
+            raise click.BadParameter(
+                    "invalid list of PIDs: %s" % arg,
+                    param_hint=("arg %d" % arg_num))
+        pid_list.append(int(tok))
+
+    return pid_list
 
 
 def _get_terminal_width():

@@ -517,13 +517,13 @@ _ALL_FIELD_DEFS = dict(
         dtime=  Fi( 'd',    TimeDeltaHumanType,
                         "create_time",
                         (_calc_desk_time, _format_time_delta),
-                        "\"Desk\" time since the process started, in human-readable format"
+                        "\"Desk time\" since the process started, in human-readable format"
                 ),
 
         dtimes= Fi( 'D',    TimeDeltaSecsType,
                         "create_time",
                         (_calc_desk_time, _float_to_int),
-                        "\"Desk\" time since the process started, in integer seconds"
+                        "\"Desk time\" since the process started, in integer seconds"
                 ),
 
         #euid=   Fi( 'E',  "proc.uids()"

@@ -365,8 +365,24 @@ class ProcessHasTty(ProcessSelectionCriterion):
         return (lambda process: process.tty is not None)
 
 
+class ProcessPidEquals(ProcessSelectionCriterion):
+    """Match the process which has a PID == `pid`."""
+    __slots__ = ("_pid_to_equal")
+    _field_names = ("pid",)
+
+    def __init__(self, pid):
+        super().__init__(pid)
+        self._pid_to_equal = pid
+
+    def field_names(self):
+        return self._field_names
+
+    def get_func(self):
+        return (lambda process: process.pid == self._pid_to_equal)
+
+
 class ProcessUidEquals(ProcessSelectionCriterion):
-    """Match processes owned by a user whose UID equals supplied `uid`."""
+    """Match processes owned by a user whose UID == `uid`."""
     __slots__ = ("_uid_to_equal")
     _field_names = ("uid",)
 
