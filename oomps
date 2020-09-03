@@ -92,7 +92,7 @@ def oomps(
     """Like `ps` or `top`, but for per-process memory usage & Linux OOM Score.
 
     There may be any number of ARGS, in any order.  ARGS are used for
-    selecting processes and specifying which fields should be queried.
+    selecting processes and specifying which fields should be shown.
 
     \b
     ARGS for selecting processes may be any of:
@@ -102,13 +102,17 @@ def oomps(
       <pid>             Select process with integer PID `pid`.
       <pid>,<pid>       Select processes with PIDs in comma-separated list.
 
-    A process is selected if ANY of the selection criteria matches.
+    A process is selected if ANY of the selection criteria match.
+
+    If no ARGS are specified for process selection, the selection criteria
+    default to `~` (select processes owned by the caller's UID).  This is
+    similar to how the `ps` command behaves without command-line arguments.
 
     When an argument accepts a comma-separated list, the list may instead
     be whitespace-separated if the caller prefers (but a single list may not
     contain both commas and whitespace).
     """
-    (parsed_selection_criteria, fields_to_query) = \
+    (parsed_selection_criteria, fields_to_show) = \
             _parse_args(all_procs, really_all_procs, args)
 
     # Parse the sorting options.
@@ -137,11 +141,11 @@ def oomps(
     # of output at the terminal width (rather than the default of wrapping).
     terminal_width = _get_terminal_width()
 
-    # Note:  We only pass the *ordered* collection `fields_to_query` into
+    # Note:  We only pass the *ordered* collection `fields_to_show` into
     # `psquery_api.query_fields`, to ensure that we receive a `QueriedProcess`
     # named-tuple result that has fields in a predictable & useful order.
     (queried_procs, field_types, memory_info, overcommit_settings) = \
-            psquery_api.query_fields(fields_to_query,
+            psquery_api.query_fields(fields_to_show,
                     selection_criteria=parsed_selection_criteria.deliver(),
                     sort_by_fields=sort_by_fields,
                     return_field_types=True, return_header_info=True)
@@ -163,7 +167,7 @@ def oomps(
         # so the last field will *not* be padded.
         field_formats[-1] = "%-s"
     proc_format = " ".join(field_formats)
-    click.echo((proc_format % tuple(fields_to_query)).upper()[:terminal_width])
+    click.echo((proc_format % tuple(fields_to_show)).upper()[:terminal_width])
     for qp in queried_procs:
         # Make use of the tuple-nature of namedtuple `QueriedProcess`.
         # Use old-style `("%s %s %s" % tup)` string-formatting.
@@ -195,7 +199,7 @@ def _parse_args(all_procs, really_all_procs, args):
 
     These parsed args will yield:
      - the initial process selection criteria (before any filtering options)
-     - the fields to query
+     - the fields to show
     """
     # The (real) UID of the user who called this function ("the caller").
     this_process_ruid = os.getuid()
@@ -206,7 +210,7 @@ def _parse_args(all_procs, really_all_procs, args):
     default_criterion = psquery_api.ProcessUidEquals(this_process_ruid)
 
     parsed_selection_criteria = ParsedSelectionCriteria(default_criterion)
-    fields_to_query = _get_default_fields()
+    fields_to_show = _get_default_fields()
 
     if really_all_procs:  # option "-A"
         # Select ALL processes, even processes NOT associated with a TTY.
@@ -265,10 +269,10 @@ def _parse_args(all_procs, really_all_procs, args):
     #  - `%comm`: match all TTY processes whose exe name starts with `comm`
     #     (Note that executable names might start with integer digits.)
     #  - `%%comm`: match ALL processes whose exe name starts with `comm`
-    #  - `.field`: prepend new field to list of fields to query
+    #  - `.field`: prepend new field to list of fields to show
     #  - `.newfield/oldfield`: replace `oldfield` with `newfield` in-place
     #  - `./oldfield`: remove `oldfield`
-    #  - `..field,field`: prepend multiple fields to list of fields to query
+    #  - `..field,field`: prepend multiple fields to list of fields to show
     #  - `==field1,field2`: override the whole list of fields
     #
     # Note #2:  We will allow per-argument lists to be separated by EITHER
@@ -310,7 +314,7 @@ def _parse_args(all_procs, really_all_procs, args):
             for pid in process_ids:
                 parsed_selection_criteria.selection_criteria.add(psquery_api.ProcessPidEquals(pid))
 
-    return (parsed_selection_criteria, fields_to_query)
+    return (parsed_selection_criteria, fields_to_show)
 
 
 def _try_match_pid_list(arg_num, arg):
