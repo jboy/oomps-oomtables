@@ -383,6 +383,23 @@ class ProcessHasTty(ProcessSelectionCriterion):
         return (lambda process: process.tty is not None)
 
 
+class ProcessHasTtyAndExeNameStartsWith(ProcessSelectionCriterion):
+    """The intersection of `ProcessHasTty` & `ProcessExeNameStartsWith`."""
+    __slots__ = ("_exe_start")
+    _field_names = ("exe", "tty")
+
+    def __init__(self, exe_start):
+        super().__init__(exe_start)
+        self._exe_start = exe_start
+
+    def field_names(self):
+        return self._field_names
+
+    def get_func(self):
+        return (lambda process: \
+                (process.tty is not None and process.exe.startswith(self._exe_start)))
+
+
 class ProcessPidEquals(ProcessSelectionCriterion):
     """Match the process which has a PID `== pid`."""
     __slots__ = ("_pid_to_equal")

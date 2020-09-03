@@ -91,22 +91,34 @@ def oomps(
         args):
     """Like `ps` or `top`, but for per-process memory usage & Linux OOM Score.
 
-    There may be any number of ARGS, in any order.  ARGS are used for
+    There may be any number of [ARGS], in any order.  [ARGS] are used for
     selecting processes and specifying which fields should be shown.
 
     \b
-    ARGS for selecting processes may be any of:
+    [ARGS] for selecting processes may be any of:
       ~                 Select processes owned by the caller's UID.
+
+    \b
+      +                 Select processes owned by the caller's UID.
+      +<uid>            Select processes owned by integer UID <uid>.
+
+    \b
       %                 Select all processes that have a TTY.
+      %<exestart>       Select processes that have a TTY, that also have
+                            executable name starting with `<exestart>`.
+
+    \b
       %%                Select ALL processes, even without a TTY.
-      %%exestart        Select processes, even without a TTY, that have
-                            executable name starting with `exestart`.
-      <pid>             Select process with integer PID `pid`.
+      %%<exestart>      Select processes, even without a TTY, that have
+                            executable name starting with `<exestart>`.
+
+    \b
+      <pid>             Select process with integer PID `<pid>`.
       <pid>,<pid>       Select processes with PIDs in comma-separated list.
 
     A process is selected if ANY of the selection criteria match.
 
-    If no ARGS are specified for process selection, the selection criteria
+    If no [ARGS] are specified for process selection, the selection criteria
     default to `~` (select processes owned by the caller's UID).  This is
     similar to how the `ps` command behaves without command-line arguments.
 
@@ -287,14 +299,14 @@ def _parse_args(all_procs, really_all_procs, args):
         # Ensure that no argument list contains both commas AND spaces.
         if ',' in arg and re.search("\\s", arg):
             raise click.BadParameter(
-                    "can't separate a list with commas AND spaces: %s" % arg,
+                    "list contains both commas AND spaces: %s" % arg,
                     param_hint=("arg %d" % arg_num))
         # Ensure that no argument contains multiple adjacent commas (ie, `,,`).
         # This is just a good old-fashioned syntax error, but we handle it here
         # so we only need to check and handle it once.
         if ',,' in arg:
             raise click.BadParameter(
-                    "adjacent commas with no value between: %s" % arg,
+                    "list contains adjacent commas with no value between: %s" % arg,
                     param_hint=("arg %d" % arg_num))
 
         if arg.startswith("%%"):
@@ -306,11 +318,34 @@ def _parse_args(all_procs, really_all_procs, args):
                 exe_start = arg[2:]
                 parsed_selection_criteria.selection_criteria.add(
                         psquery_api.ProcessExeNameStartsWith(exe_start))
-        elif arg == "%":
-            parsed_selection_criteria.selection_criteria.add(psquery_api.ProcessHasTty())
+
+        elif arg.startswith("%"):
+            if arg == "%":
+                parsed_selection_criteria.selection_criteria.add(
+                        psquery_api.ProcessHasTty())
+            else:
+                exe_start = arg[1:]
+                parsed_selection_criteria.selection_criteria.add(
+                        psquery_api.ProcessHasTtyAndExeNameStartsWith(exe_start))
+
+        elif arg.startswith("+"):
+            if arg == "+":
+                # Match the caller's UID.
+                parsed_selection_criteria.selection_criteria.add(default_criterion)
+            else:
+                try:
+                    uid = int(arg)
+                    parsed_selection_criteria.selection_criteria.add(
+                            psquery_api.ProcessUidEquals(uid))
+                except ValueError as e:
+                    raise click.BadParameter(
+                            "invalid UID: %s" % arg,
+                            param_hint=("arg %d" % arg_num))
+
         elif arg == "~" or arg == this_process_home:
             # Match the caller's UID.
             parsed_selection_criteria.selection_criteria.add(default_criterion)
+
         else:
             # The only type of argument that doesn't begin with a single
             # well-defined character or multi-character sequence, is the
