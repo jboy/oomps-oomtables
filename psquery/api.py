@@ -29,6 +29,7 @@ MemoryInfo = namedtuple("MemoryInfo", (
 
 
 def _collect_memory_info():
+    """Collect system-wide memory info like the `top` program displays."""
     # https://psutil.readthedocs.io/en/latest/#psutil.virtual_memory
     virt_mem_info = psutil_virtual_memory()
     # https://psutil.readthedocs.io/en/latest/#psutil.swap_memory
@@ -237,6 +238,7 @@ def _select_processes(AllFields, field_accessors, psutil_attr_names, selection_f
     return selected_processes
 
 
+## Select processes to be queried.
 ## These process selection criteria match the processes using field values
 ## just like the ones that are returned to the caller.
 
@@ -350,6 +352,22 @@ class ProcessSelectionCriterion(metaclass=ABCMeta):
         return hash(self._repr)
 
 
+class ProcessExeNameStartsWith(ProcessSelectionCriterion):
+    """Match processes that have executable names `.startswith(exe_start)`."""
+    __slots__ = ("_exe_start")
+    _field_names = ("exe",)
+
+    def __init__(self, exe_start):
+        super().__init__(exe_start)
+        self._exe_start = exe_start
+
+    def field_names(self):
+        return self._field_names
+
+    def get_func(self):
+        return (lambda process: process.exe.startswith(self._exe_start))
+
+
 class ProcessHasTty(ProcessSelectionCriterion):
     """Match processes that are associated with a TTY (terminal)."""
     __slots__ = ()
@@ -366,7 +384,7 @@ class ProcessHasTty(ProcessSelectionCriterion):
 
 
 class ProcessPidEquals(ProcessSelectionCriterion):
-    """Match the process which has a PID == `pid`."""
+    """Match the process which has a PID `== pid`."""
     __slots__ = ("_pid_to_equal")
     _field_names = ("pid",)
 
@@ -382,7 +400,7 @@ class ProcessPidEquals(ProcessSelectionCriterion):
 
 
 class ProcessUidEquals(ProcessSelectionCriterion):
-    """Match processes owned by a user whose UID == `uid`."""
+    """Match processes owned by a user whose UID `== uid`."""
     __slots__ = ("_uid_to_equal")
     _field_names = ("uid",)
 
@@ -396,6 +414,8 @@ class ProcessUidEquals(ProcessSelectionCriterion):
     def get_func(self):
         return (lambda process: process.uid == self._uid_to_equal)
 
+
+## Sort selected processes by field.
 
 class SortByField(object):
     """Sort by a single specified field."""

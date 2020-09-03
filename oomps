@@ -99,6 +99,8 @@ def oomps(
       ~                 Select processes owned by the caller's UID.
       %                 Select all processes that have a TTY.
       %%                Select ALL processes, even without a TTY.
+      %%exestart        Select processes, even without a TTY, that have
+                            executable name starting with `exestart`.
       <pid>             Select process with integer PID `pid`.
       <pid>,<pid>       Select processes with PIDs in comma-separated list.
 
@@ -111,6 +113,8 @@ def oomps(
     When an argument accepts a comma-separated list, the list may instead
     be whitespace-separated if the caller prefers (but a single list may not
     contain both commas and whitespace).
+
+    To see which fields may be shown, use option `--help-list-fields`.
     """
     (parsed_selection_criteria, fields_to_show) = \
             _parse_args(all_procs, really_all_procs, args)
@@ -293,10 +297,15 @@ def _parse_args(all_procs, really_all_procs, args):
                     "adjacent commas with no value between: %s" % arg,
                     param_hint=("arg %d" % arg_num))
 
-        if arg == "%%":
-            # Select ALL processes, even processes NOT associated with a TTY.
-            # After this option or arg, all other args are redundant.
-            parsed_selection_criteria.really_all_procs = True
+        if arg.startswith("%%"):
+            if arg == "%%":
+                # Select ALL processes, even processes NOT associated with a TTY.
+                # After this option or arg, all other args are redundant.
+                parsed_selection_criteria.really_all_procs = True
+            else:
+                exe_start = arg[2:]
+                parsed_selection_criteria.selection_criteria.add(
+                        psquery_api.ProcessExeNameStartsWith(exe_start))
         elif arg == "%":
             parsed_selection_criteria.selection_criteria.add(psquery_api.ProcessHasTty())
         elif arg == "~" or arg == this_process_home:
@@ -312,7 +321,8 @@ def _parse_args(all_procs, really_all_procs, args):
             # If this doesn't match, then the argument is invalid.
             process_ids = _try_match_pid_list(arg_num, arg)
             for pid in process_ids:
-                parsed_selection_criteria.selection_criteria.add(psquery_api.ProcessPidEquals(pid))
+                parsed_selection_criteria.selection_criteria.add(
+                        psquery_api.ProcessPidEquals(pid))
 
     return (parsed_selection_criteria, fields_to_show)
 
