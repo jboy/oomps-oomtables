@@ -20,6 +20,7 @@ from psquery import api as psquery_api
 
 
 def _get_default_fields():
+    """Return the default fields as a list of strings."""
     _default_fields = "user pid ppid start dtime vszh adj ooms cmds"
     return _default_fields.split()
 
@@ -34,9 +35,10 @@ def _help_list_fields(ctx, param, value):
     if not value or ctx.resilient_parsing:
         return
 
-    click.echo("Fields that may be queried: (default fields marked by '*')")
-    (headers, all_fields) = psquery_api.list_all_fields()
+    (headers, all_fields) = psquery_api.list_all_fields(return_headers=True, descr=True)
     default_fields = set(_get_default_fields())
+
+    click.echo("Fields that may be queried: (default fields marked by '*')")
     # TODO: Format this using the proper Click `HelpFormatter`.
     click.echo("    %-7s %-3s %s" % headers)
     for f in all_fields:
@@ -123,12 +125,24 @@ def oomps(
     similar to how the `ps` command behaves without command-line arguments.
 
     When an argument accepts a comma-separated list, the list may instead
-    be whitespace-separated if the caller prefers (but a single list may not
+    be whitespace-separated if the caller prefers (but a single list may NOT
     contain both commas and whitespace).
 
+    \b
+    [ARGS] for specifying which fields should be shown may be any of:
+      .<field>              Show <field> first in columns.
+      .<new>/<old>          Replace <old> field with <new> in-place.
+      ./<field>             Remove <field> field from columns.
+      ..<field1>,<field2>   Show <field1>,<field2> list first in columns.
+
+    \b
+      ==<field1>,<field2>   Specify exactly which fields should be shown
+                                (completely overriding the default).
+
     To see which fields may be shown, use option `--help-list-fields`.
+    A field may be identified by its field name or its 1-character field key.
     """
-    (parsed_selection_criteria, fields_to_show) = \
+    (fields_to_show, selection_criteria) = \
             _parse_args(all_procs, really_all_procs, args)
 
     # Parse the sorting options.
@@ -157,12 +171,13 @@ def oomps(
     # of output at the terminal width (rather than the default of wrapping).
     terminal_width = _get_terminal_width()
 
-    # Note:  We only pass the *ordered* collection `fields_to_show` into
-    # `psquery_api.query_fields`, to ensure that we receive a `QueriedProcess`
-    # named-tuple result that has fields in a predictable & useful order.
+    # Observe:  We pass an *ordered* collection (a tuple) `fields_to_show`
+    # into function `psquery_api.query_fields`.  This ensures that we receive
+    # a `QueriedProcess` named-tuple result that has fields in an order that's
+    # predictable & useful to us.
     (queried_procs, field_types, memory_info, overcommit_settings) = \
             psquery_api.query_fields(fields_to_show,
-                    selection_criteria=parsed_selection_criteria.deliver(),
+                    selection_criteria=selection_criteria,
                     sort_by_fields=sort_by_fields,
                     return_field_types=True, return_header_info=True)
 
@@ -190,6 +205,173 @@ def oomps(
         click.echo((proc_format % qp)[:terminal_width])
 
 
+class ParsedFieldsToShow(object):
+    def __init__(self, all_fields_defined, default_fields):
+        # A look-up table of field name -> field key.
+        self._all_fields_by_name = dict(all_fields_defined)
+        # A look-up table of field key -> field name.
+        self._all_fields_by_key = dict(
+                (key, name)
+                for name, key in all_fields_defined
+                if key)
+
+        self._main_fields_to_show = list(default_fields)
+        self._first_fields_to_show = []
+
+
+    def _get_field_name(self, field):
+        if field in self._all_fields_by_name:
+            # Is it a field name?  Otherwise, fall-back to checking field key.
+            return field
+        else:
+            # Is it a field key?  Raise `KeyError` if key not found.
+            return self._all_fields_by_key[field]
+
+
+    def deliver(self):
+        if len(self._first_fields_to_show) > 0:
+            return tuple(self._first_fields_to_show) + tuple(self._main_fields_to_show)
+        else:
+            return tuple(self._main_fields_to_show)
+
+
+    def override_fields(self, fields):
+        if not fields:
+            # We will not override the fields to show with NO fields.
+            raise ValueError("missing field names or field keys")
+
+        if isinstance(fields, str):
+            # We assume `fields` is a single string of multiple
+            # single-character field keys.
+            # Expand them to the field names that we will store.
+            # Raise `KeyError` if key not found.
+            all_fields_by_key = self._all_fields_by_key
+            fields = [all_fields_by_key[c] for c in fields]
+        else:
+            # We assume `fields` is a sequence of field name strings.
+            # Let's verify their validity.
+            all_fields_by_name = self._all_fields_by_name
+            for f in fields:
+                all_fields_by_name[f]
+
+        self._main_fields_to_show = list(fields)
+        self._first_fields_to_show.clear()
+
+
+    def remove_field(self, old_field):
+        # Complain about empty strings specially.
+        # Of course, this situation would be handled (raising a `KeyError`)
+        # by the check in `self._get_field_name`, because the empty string
+        # will not be a valid field name or field key.
+        #
+        # But the error messages for these terse command-line options can be
+        # a little cryptic.  So let's report an error as clearly as possible.
+        if not old_field:
+            raise ValueError("missing field name or field key")
+
+        # This will also verify that `old_field` is a valid field name or key.
+        field_name = self._get_field_name(old_field)
+        field_in_main = (field_name in self._main_fields_to_show)
+        field_in_first = (field_name in self._first_fields_to_show)
+
+        if not (field_in_main or field_in_first):
+            # This field is already NOT specified to be shown.
+            raise ValueError("field is already NOT shown, so cannot be removed: %r" %
+                    old_field)
+
+        # Otherwise, this field *is* specified to be shown, so let's remove it.
+        if field_in_main:
+            self._main_fields_to_show.remove(field_name)
+        if field_in_first:
+            self._first_fields_to_show.remove(field_name)
+
+
+    def replace_field_in_place(self, old_field, new_field):
+        # Complain about empty strings specially.
+        # Of course, this situation would be handled (raising a `KeyError`)
+        # by the check in `self._get_field_name`, because the empty string
+        # will not be a valid field name or field key.
+        #
+        # But the error messages for these terse command-line options can be
+        # a little cryptic.  So let's report an error as clearly as possible.
+        if not old_field or not new_field:
+            raise ValueError("missing field name or field key")
+
+        # This will also verify that `old_field` is a valid field name or key.
+        old_field_name = self._get_field_name(old_field)
+        old_field_in_main = (old_field_name in self._main_fields_to_show)
+        old_field_in_first = (old_field_name in self._first_fields_to_show)
+
+        # This will also verify that `new_field` is a valid field name or key.
+        new_field_name = self._get_field_name(new_field)
+        new_field_in_main = (new_field_name in self._main_fields_to_show)
+        new_field_in_first = (new_field_name in self._first_fields_to_show)
+
+        if not (old_field_in_main or old_field_in_first):
+            # This field is already NOT specified to be shown.
+            raise ValueError("field is already NOT shown, so cannot be removed: %r" %
+                    old_field)
+
+        if (new_field_in_main or new_field_in_first):
+            # This field is already specified to be shown.
+            raise ValueError("field is already shown, so cannot be inserted as replacement: %r" %
+                    new_field)
+
+        # Otherwise, the old field *is* specified to be shown,
+        # so let's replace it by the new field in-place.
+        if old_field_in_main:
+            idx = self._main_fields_to_show.index(old_field_name)
+            self._main_fields_to_show[idx] = new_field_name
+        if old_field_in_first:
+            idx = self._first_fields_to_show.index(old_field_name)
+            self._first_fields_to_show[idx] = new_field_name
+
+
+    def show_field_first(self, new_field):
+        # Complain about empty strings specially.
+        # Of course, this situation would be handled (raising a `KeyError`)
+        # by the check in `self._get_field_name`, because the empty string
+        # will not be a valid field name or field key.
+        #
+        # But the error messages for these terse command-line options can be
+        # a little cryptic.  So let's report an error as clearly as possible.
+        if not new_field:
+            raise ValueError("missing field name or field key")
+
+        # This will also verify that `new_field` is a valid field name or key.
+        field_name = self._get_field_name(new_field)
+        field_in_main = (field_name in self._main_fields_to_show)
+        field_in_first = (field_name in self._first_fields_to_show)
+
+        # It's not an error if this field is already specified to be shown;
+        # just move it to the end of the "first fields" list.
+        if field_in_main:
+            self._main_fields_to_show.remove(field_name)
+        if field_in_first:
+            self._first_fields_to_show.remove(field_name)
+
+        self._first_fields_to_show.append(field_name)
+
+
+    def show_fields_first(self, new_fields):
+        # Even though inserting zero number of fields as the first fields
+        # is not really a problem (since it's technically a no-op), it's
+        # still invalid syntax.
+        if not new_fields:
+            # We will not override the fields to show with NO fields.
+            raise ValueError("missing field names or field keys")
+
+        if isinstance(new_fields, str):
+            # We assume `new_fields` is a single string of multiple
+            # single-character field keys.
+            for c in new_fields:
+                self.show_field_first(c)
+        else:
+            # We assume `new_fields` is a sequence of field name strings.
+            for f in new_fields:
+                self.show_field_first(f)
+
+
 class ParsedSelectionCriteria(object):
     def __init__(self, default=None):
         self.selection_criteria = set()
@@ -214,19 +396,21 @@ def _parse_args(all_procs, really_all_procs, args):
     """Parse the non-option command-line args, and the few "widening" options.
 
     These parsed args will yield:
+     - which fields to show
      - the initial process selection criteria (before any filtering options)
-     - the fields to show
     """
+    all_fields_defined = psquery_api.list_all_fields()
+    default_fields = list(_get_default_fields())
+    parsed_fields_to_show = ParsedFieldsToShow(all_fields_defined, default_fields)
+
     # The (real) UID of the user who called this function ("the caller").
     this_process_ruid = os.getuid()
     # The home directory of the user who called this function.
     this_process_home = os.path.expanduser("~")
     # If no selection criteria are specified, default to matching processes
     # that have (real) UID matching the caller.
-    default_criterion = psquery_api.ProcessUidEquals(this_process_ruid)
-
-    parsed_selection_criteria = ParsedSelectionCriteria(default_criterion)
-    fields_to_show = _get_default_fields()
+    default_uid_criterion = psquery_api.ProcessUidEquals(this_process_ruid)
+    parsed_selection_criteria = ParsedSelectionCriteria(default_uid_criterion)
 
     if really_all_procs:  # option "-A"
         # Select ALL processes, even processes NOT associated with a TTY.
@@ -297,81 +481,244 @@ def _parse_args(all_procs, really_all_procs, args):
     # is invalid.
     for arg_num, arg in enumerate(args, start=1):
         # Ensure that no argument list contains both commas AND spaces.
-        if ',' in arg and re.search("\\s", arg):
+        contains_commas = ',' in arg
+        contains_spaces = re.search("\\s", arg)
+        if contains_commas and contains_spaces:
             raise click.BadParameter(
-                    "list contains both commas AND spaces: %s" % arg,
+                    "list contains both commas AND spaces: %r" % arg,
                     param_hint=("arg %d" % arg_num))
         # Ensure that no argument contains multiple adjacent commas (ie, `,,`).
         # This is just a good old-fashioned syntax error, but we handle it here
         # so we only need to check and handle it once.
         if ',,' in arg:
             raise click.BadParameter(
-                    "list contains adjacent commas with no value between: %s" % arg,
+                    "list contains adjacent commas with no value between: %r" % arg,
                     param_hint=("arg %d" % arg_num))
 
-        if arg.startswith("%%"):
-            if arg == "%%":
-                # Select ALL processes, even processes NOT associated with a TTY.
-                # After this option or arg, all other args are redundant.
-                parsed_selection_criteria.really_all_procs = True
-            else:
-                exe_start = arg[2:]
-                parsed_selection_criteria.selection_criteria.add(
-                        psquery_api.ProcessExeNameStartsWith(exe_start))
-
-        elif arg.startswith("%"):
-            if arg == "%":
-                parsed_selection_criteria.selection_criteria.add(
-                        psquery_api.ProcessHasTty())
-            else:
-                exe_start = arg[1:]
-                parsed_selection_criteria.selection_criteria.add(
-                        psquery_api.ProcessHasTtyAndExeNameStartsWith(exe_start))
-
+        if arg.startswith("%"):
+            _parse_arg_start_percent(arg_num, arg, parsed_selection_criteria)
         elif arg.startswith("+"):
-            if arg == "+":
-                # Match the caller's UID.
-                parsed_selection_criteria.selection_criteria.add(default_criterion)
-            else:
-                try:
-                    uid = int(arg)
-                    parsed_selection_criteria.selection_criteria.add(
-                            psquery_api.ProcessUidEquals(uid))
-                except ValueError as e:
-                    raise click.BadParameter(
-                            "invalid UID: %s" % arg,
-                            param_hint=("arg %d" % arg_num))
-
+            _parse_arg_start_plus(arg_num, arg, parsed_selection_criteria, default_uid_criterion)
         elif arg == "~" or arg == this_process_home:
             # Match the caller's UID.
             parsed_selection_criteria.selection_criteria.add(default_criterion)
-
+        elif arg.startswith("."):
+            _parse_arg_start_dot(arg_num, arg, parsed_fields_to_show,
+                    contains_commas, contains_spaces)
+        elif arg.startswith("="):
+            _parse_arg_start_equals(arg_num, arg, parsed_fields_to_show,
+                    contains_commas, contains_spaces)
         else:
             # The only type of argument that doesn't begin with a single
-            # well-defined character or multi-character sequence, is the
-            # only type of argument that we haven't yet checked:  Match an
-            # integer Process ID (or match a comma/space-separated sequence
-            # of integers, to match several Process IDs).
+            # well-defined character or multi-character sequence, is the only
+            # type of argument that we haven't yet checked:  Try to parse &
+            # match an integer Process ID (or match a comma/space-separated
+            # sequence of integers, to match several Process IDs).
             #
             # If this doesn't match, then the argument is invalid.
-            process_ids = _try_match_pid_list(arg_num, arg)
-            for pid in process_ids:
+            _try_parse_pid_list(arg_num, arg, parsed_selection_criteria,
+                    contains_commas, contains_spaces)
+
+    return (parsed_fields_to_show.deliver(), parsed_selection_criteria.deliver())
+
+
+def _parse_arg_start_dot(arg_num, arg, parsed_fields_to_show,
+        contains_commas, contains_spaces):
+    """Parse a command-line arg that starts with 1 or more dot (`.`) characters.
+
+    Args that start with 1 or more dot characters, all relate to specifying
+    fields that should be added or removed from the list of fields to show.
+    """
+    if arg.startswith(".."):
+        # The argument after `..` should be multiple fields, whether a list of
+        # multiple comma/space-separated field names, or multiple field keys in
+        # a single string.
+        fields = arg[2:]
+        if contains_commas or contains_spaces:
+            # There are commas or spaces => Assume it's a list of field names.
+            # Replace commas with spaces, so we only need to do one split.
+            # Note that `.split()` also strips any leading & trailing whitespace.
+            fields = (fields.replace(",", " ") if contains_commas else fields).split()
+        try:
+            parsed_fields_to_show.show_fields_first(fields)
+        except KeyError as e:
+            raise click.BadParameter(
+                    "no such field name or field key %s: %r" % (str(e), arg),
+                    param_hint=("arg %d" % arg_num))
+        except ValueError as e:
+            raise click.BadParameter(
+                    "%s: %r" % (str(e), arg),
+                    param_hint=("arg %d" % arg_num))
+
+    elif arg.startswith("./"):
+        # The argument after `./` should be a single field,
+        # whether a field name or a field key.
+        field = arg[2:]
+        if contains_commas or contains_spaces:
+            # This is an invalid argument after `./`.
+            raise click.BadParameter(
+                    "argument after `./` should be just 1 field: %r" % arg,
+                    param_hint=("arg %d" % arg_num))
+        try:
+            parsed_fields_to_show.remove_field(field)
+        except KeyError as e:
+            raise click.BadParameter(
+                    "no such field name or field key %s: %r" % (str(e), arg),
+                    param_hint=("arg %d" % arg_num))
+        except ValueError as e:
+            raise click.BadParameter(
+                    "%s: %r" % (str(e), arg),
+                    param_hint=("arg %d" % arg_num))
+
+    else:  # arg.startswith(".")
+        fields = arg[2:]
+        if contains_commas or contains_spaces:
+            # This is an invalid argument after `.`.
+            # But let's avoid reporting a confusing/misleading error message.
+            if "/" in fields:
+                # It's probably intended to be a field-replacement.
+                raise click.BadParameter(
+                        "argument after `.` should be `newfield/oldfield`: %r" % arg,
+                        param_hint=("arg %d" % arg_num))
+            else:
+                raise click.BadParameter(
+                        "argument after `.` should be just 1 field: %r" % arg,
+                        param_hint=("arg %d" % arg_num))
+
+        field = arg[1:]
+        if "/" in field:
+            # It's a field-replacement.
+            fields = field.split("/")
+            if len(fields) != 2:
+                # This is an invalid argument after `.`.
+                raise click.BadParameter(
+                        "argument after `.` should be `newfield/oldfield`: %r" % arg,
+                        param_hint=("arg %d" % arg_num))
+            # else, we have verified there are exactly 2 fields.
+            (new_field, old_field) = fields
+            try:
+                parsed_fields_to_show.replace_field_in_place(old_field, new_field)
+            except KeyError as e:
+                raise click.BadParameter(
+                        "no such field name or field key %s: %r" % (str(e), arg),
+                        param_hint=("arg %d" % arg_num))
+            except ValueError as e:
+                raise click.BadParameter(
+                        "%s: %r" % (str(e), arg),
+                        param_hint=("arg %d" % arg_num))
+        else:
+            try:
+                parsed_fields_to_show.show_field_first(field)
+            except KeyError as e:
+                raise click.BadParameter(
+                        "no such field name or field key %s: %r" % (str(e), arg),
+                        param_hint=("arg %d" % arg_num))
+            except ValueError as e:
+                raise click.BadParameter(
+                        "%s: %r" % (str(e), arg),
+                        param_hint=("arg %d" % arg_num))
+
+
+def _parse_arg_start_equals(arg_num, arg, parsed_fields_to_show,
+        contains_commas, contains_spaces):
+    """Parse a command-line arg that starts with 1 or more dot (`=`) signs.
+
+    An arg that starts with 2 equals characters, is used to override the list
+    of fields to show.  There are no valid args that start with only 1 equals
+    character.
+    """
+    if arg.startswith("=="):
+        # The argument after `==` should be multiple fields, whether a list of
+        # multiple comma/space-separated field names, or multiple field keys in
+        # a single string.
+        fields = arg[2:]
+        if contains_commas or contains_spaces:
+            # There are commas or spaces => Assume it's a list of field names.
+            # Replace commas with spaces, so we only need to do one split.
+            # Note that `.split()` also strips any leading & trailing whitespace.
+            fields = (fields.replace(",", " ") if contains_commas else fields).split()
+        try:
+            parsed_fields_to_show.override_fields(fields)
+        except KeyError as e:
+            raise click.BadParameter(
+                    "no such field name or field key %s: %r" % (str(e), arg),
+                    param_hint=("arg %d" % arg_num))
+        except ValueError as e:
+            raise click.BadParameter(
+                    "%s: %r" % (str(e), arg),
+                    param_hint=("arg %d" % arg_num))
+
+    else:  # arg.startswith("=")
+        # As stated in the docstring for this function, there are no valid args
+        # that start with only 1 equals character.
+        raise click.BadParameter(
+                "invalid argument: %r" % arg,
+                param_hint=("arg %d" % arg_num))
+
+
+def _parse_arg_start_percent(arg_num, arg, parsed_selection_criteria):
+    """Parse a command-line arg that starts with 1 or more percent (`%`) signs.
+
+    Args that start with 1 or more percent characters, all relate to selecting
+    processes that have an associated TTY and/or a given executable name.
+    """
+    if arg.startswith("%%"):
+        if arg == "%%":
+            # Select ALL processes, even processes NOT associated with a TTY.
+            # After this option or arg, all other args are redundant.
+            parsed_selection_criteria.really_all_procs = True
+        else:
+            exe_start = arg[2:]
+            parsed_selection_criteria.selection_criteria.add(
+                    psquery_api.ProcessExeNameStartsWith(exe_start))
+
+    else:  # arg.startswith("%")
+        if arg == "%":
+            parsed_selection_criteria.selection_criteria.add(
+                    psquery_api.ProcessHasTty())
+        else:
+            exe_start = arg[1:]
+            parsed_selection_criteria.selection_criteria.add(
+                    psquery_api.ProcessHasTtyAndExeNameStartsWith(exe_start))
+
+
+def _parse_arg_start_plus(arg_num, arg, parsed_selection_criteria, default_uid_criterion):
+    """Parse a command-line arg that starts with 1 or more plus (`+`) signs.
+
+    Args that start with 1 or more plus characters, all relate to selecting
+    processes that are owned by a given integer UID (or Effective UID -- TBI).
+    """
+    if arg.startswith("++"):
+        # TODO: Not Yet Implemented: Match the Effective UID.
+        raise NotImplementedError("++ for matching Effective UID")
+    else:  # arg.startswith("+")
+        if arg == "+":
+            # Match the caller's UID.
+            parsed_selection_criteria.selection_criteria.add(
+                    default_uid_criterion)
+        else:
+            try:
+                # `int()` function ignores a single leading plus sign (`+`).
+                uid = int(arg)
                 parsed_selection_criteria.selection_criteria.add(
-                        psquery_api.ProcessPidEquals(pid))
+                        psquery_api.ProcessUidEquals(uid))
+            except ValueError as e:
+                raise click.BadParameter(
+                        "invalid integer UID: %r" % arg,
+                        param_hint=("arg %d" % arg_num))
 
-    return (parsed_selection_criteria, fields_to_show)
 
+def _try_parse_pid_list(arg_num, arg, parsed_selection_criteria,
+        contains_commas, contains_spaces):
+    """Parse a sequence of 1 or more integer PIDs, separated by spaces or commas.
 
-def _try_match_pid_list(arg_num, arg):
-    """Match a sequence of 1 or more integer PIDs, separated by spaces or commas.
-
-    We only match numeric digits (without allowing preceding `+` or `-` signs)
+    We only match numeric digits (without allowing preceding `+` or `-` signs),
     because we use integers preceded by a `+` sign to indicate UIDs (so they
     can't be confused with usernames that just happen to be all-digits); and
-    we use leading `-` signs only for options.
+    because we use leading `-` signs only for options.
 
-    This is why we don't just use the Python `int()` function for this check
-    -- because Python `int()` allows preceding `+` & `-` signs.
+    This is why we don't just use the Python `int()` function for this check:
+    because Python `int()` allows preceding `+` & `-` signs.
 
     We ignore leading whitespace, as long as there is eventually a PID integer.
     (We're trying to be flexible here, because we want to allow the caller some
@@ -381,20 +728,31 @@ def _try_match_pid_list(arg_num, arg):
       - multiple adjacent commas
       - a mixture of commas and spaces.
     """
-    # Replaces commas with spaces, so we only need to do one split.
-    # Note that `.split()` also strips any leading & trailing whitespace.
-    tokens = arg.replace(",", " ").split()
-    pid_list = []
-    for tok in tokens:
+    if not (contains_commas or contains_spaces):
+        # No commas and no spaces => No splitting is necessary.
+        # This argument is either a single valid PID integer, or not valid.
         # Match numeric digits only.
-        if not tok.isdigit():
-            # Despite our flexibility, this is an invalid argument.
+        if not arg.isdigit():
             raise click.BadParameter(
-                    "invalid list of PIDs: %s" % arg,
+                    "invalid PID: %r" % arg,
                     param_hint=("arg %d" % arg_num))
-        pid_list.append(int(tok))
-
-    return pid_list
+        parsed_selection_criteria.selection_criteria.add(
+                psquery_api.ProcessPidEquals(int(arg)))
+    else:
+        # This argument contains either commas or spaces (but recall
+        # that we've already confirmed that it does NOT contain both).
+        # Replace commas with spaces, so we only need to do one split.
+        # Note that `.split()` also strips any leading & trailing whitespace.
+        tokens = (arg.replace(",", " ") if contains_commas else arg).split()
+        for tok in tokens:
+            # Match numeric digits only.
+            if not tok.isdigit():
+                # Despite our flexibility, this is an invalid argument.
+                raise click.BadParameter(
+                        "invalid list of PIDs: %r" % arg,
+                        param_hint=("arg %d" % arg_num))
+            parsed_selection_criteria.selection_criteria.add(
+                    psquery_api.ProcessPidEquals(int(tok)))
 
 
 def _get_terminal_width():
@@ -491,8 +849,8 @@ def _format_overcommit_settings(overcommit_settings):
     Here is an example returned by this function:
         Overcommit: mode = 0 "heuristic overcommit (default)", ratio = 50.0%
     """
-    return "Overcommit: mode = {os.mode} \"{os.descr}\", ratio = {os.ratio:4.1f}%\n".format(
-            os=overcommit_settings)
+    return "Overcommit: mode = {ov.mode} \"{ov.descr}\", ratio = {ov.ratio:4.1f}%\n".format(
+            ov=overcommit_settings)
 
 
 if __name__ == "__main__":

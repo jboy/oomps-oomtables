@@ -656,7 +656,7 @@ _ALL_FIELD_DEFS = dict(
 def get_field_info(field_name):
     """Access the FieldInfo for supplied `field_name`.
 
-    If `field_name` is not valid, raise `ValueError`.
+    If `field_name` is not valid (ie, not in the master-list), raise `ValueError`.
     """
     try:
         return _ALL_FIELD_DEFS[field_name]
@@ -665,10 +665,36 @@ def get_field_info(field_name):
         raise ValueError("invalid field name: %s" % field_name)
 
 
-def list_all_fields():
-    headers = ("NAME", "KEY", "DESCR")
+def list_all_fields(return_headers=False, descr=False):
+    """Return a newly-allocated list of all fields defined in the master-list.
+
+    The default invocation of this function returns a list of 2-tuples,
+    where each tuple contains `(name, key)` of a field.  The returned list
+    can thus be passed immediately as the argument to `dict()`, to construct
+    a look-up table of field name to field key.
+
+    If optional parameter `return_headers` is `True` (default `False`), also
+    return a tuple of the names of the attributes in each per-field tuple,
+    in a 2-tuple `(headers, all_fields)`.
+
+    If optional parameter `descr` is `True` (default `False`), also include
+    the human-readable description string of each field in its per-field tuple
+    in `all_fields`.
+    """
+    headers = ("NAME", "KEY")
+    if descr:
+        headers += ("DESCR",)
+
     all_fields = []
     for field_name, field_info in _ALL_FIELD_DEFS.items():
-        key = field_info.key
-        all_fields.append((field_name, key if key is not None else "", field_info.descr))
-    return (headers, all_fields)
+        field = (field_name, field_info.key if field_info.key is not None else "")
+        if descr:
+            field += (field_info.descr,)
+
+        all_fields.append(field)
+
+    if return_headers:
+        return (headers, all_fields)
+    else:
+        return all_fields
+
