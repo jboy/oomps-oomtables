@@ -50,6 +50,30 @@ def _help_list_fields(ctx, param, value):
     ctx.exit()
 
 
+def _help_list_fields_md(ctx, param, value):
+    """List all fields (in a Markdown-format table) and exit.
+
+    The beautiful-looking parameters to this function are how Click does
+    "help" options that exit.
+    """
+    # This beautiful boilerplate is how Click does "help" options that exit.
+    if not value or ctx.resilient_parsing:
+        return
+
+    (headers, all_fields) = psquery_api.list_all_fields(return_headers=True, descr=True)
+    default_fields = set(_get_default_fields())
+
+    click.echo("| %s | Is Default | %s | %s |" % headers)
+    click.echo("| -- | ---------- | -- | -- |")
+    for f in all_fields:
+        (name, key, descr) = f
+        is_default_field = (name in default_fields)
+        # TODO: Format this using the proper Click `HelpFormatter`.
+        click.echo("| `%s` | %s | `%s` | %s |" % (name, 'Y' if is_default_field else ' ', key, descr))
+
+    ctx.exit()
+
+
 @click.command()
 @click.option('-a', '--all-procs', is_flag=True,
         help="Select: all processes that have a TTY.")
@@ -84,6 +108,10 @@ def _help_list_fields(ctx, param, value):
 @click.option('--help-list-fields', is_flag=True, is_eager=True, expose_value=False,
         callback=_help_list_fields,
         help="List all fields and exit.")
+
+@click.option('--help-list-fields-md', is_flag=True, is_eager=True, expose_value=False,
+        callback=_help_list_fields_md,
+        help="List all fields (in Markdown format) and exit.")
 
 @click.argument('args', nargs=-1)
 def oomps(
