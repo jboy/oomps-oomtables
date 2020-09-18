@@ -52,34 +52,34 @@ def _help_list_fields(ctx, param, value):
 
 @click.command()
 @click.option('-a', '--all-procs', is_flag=True,
-        help="Select all processes that have a TTY.")
+        help="Select: all processes that have a TTY.")
 
 @click.option('-A', '--really-all-procs', is_flag=True,
-        help="Select ALL processes, even without a TTY.")
+        help="Select: ALL processes, even without a TTY.")
 
 @click.option('-o', '--sort-by-oom', 'sort_by_field_options', multiple=True, flag_value="ooms",
-        help="Sort by (ascending) OOM Score.")
+        help="Sort:   by (ascending) OOM Score.")
 
 @click.option('-O', '--rev-sort-by-oom', 'sort_by_field_options', multiple=True, flag_value="-ooms",
-        help="Sort by descending OOM Score.")
+        help="Sort:   by descending OOM Score.")
 
 @click.option('-r', '--sort-by-rsz', 'sort_by_field_options', multiple=True, flag_value="rszk",
-        help="Sort by (ascending) resident set size.")
+        help="Sort:   by (ascending) resident set size.")
 
 @click.option('-R', '--rev-sort-by-rsz', 'sort_by_field_options', multiple=True, flag_value="-rszk",
-        help="Sort by descending resident set size.")
+        help="Sort:   by descending resident set size.")
 
 @click.option('-s', '--sort-by-start', 'sort_by_field_options', multiple=True, flag_value="starts",
-        help="Sort by (ascending) start time.")
+        help="Sort:   by (ascending) start time.")
 
 @click.option('-S', '--rev-sort-by-start', 'sort_by_field_options', multiple=True, flag_value="-starts",
-        help="Sort by descending start time.")
+        help="Sort:   by descending start time.")
 
 @click.option('-v', '--sort-by-vsz', 'sort_by_field_options', multiple=True, flag_value="vszk",
-        help="Sort by (ascending) virtual memory size.")
+        help="Sort:   by (ascending) virtual memory size.")
 
 @click.option('-V', '--rev-sort-by-vsz', 'sort_by_field_options', multiple=True, flag_value="-vszk",
-        help="Sort by descending virtual memory size.")
+        help="Sort:   by descending virtual memory size.")
 
 @click.option('--help-list-fields', is_flag=True, is_eager=True, expose_value=False,
         callback=_help_list_fields,
@@ -93,8 +93,15 @@ def oomps(
         args):
     """Like `ps` or `top`, but for per-process memory usage & Linux OOM Score.
 
+    \b
+    This command runs in 3 stages:
+     1. Select (processes) by specified criteria (default: caller's UID).
+     2. Sort (processes) by specified field criteria (default: PID).
+     3. Print (process field values) to stdout, in column-based format.
+
     There may be any number of [ARGS], in any order.  [ARGS] are used for
-    selecting processes and specifying which fields should be shown.
+    selecting processes and specifying which fields (process attributes)
+    should be included in the print to stdout.
 
     \b
     [ARGS] for selecting processes may be any of:
@@ -119,6 +126,7 @@ def oomps(
       <pid>,<pid>       Select processes with PIDs in comma-separated list.
 
     A process is selected if ANY of the selection criteria match.
+    (So the selection criteria "OR" together.)
 
     If no [ARGS] are specified for process selection, the selection criteria
     default to `~` (select processes owned by the caller's UID).  This is
@@ -140,7 +148,7 @@ def oomps(
                                 (completely overriding the default).
 
     To see which fields may be shown, use option `--help-list-fields`.
-    A field may be identified by its field name or its 1-character field key.
+    A field may be specified by its field name or its 1-character field key.
     """
     (fields_to_show, selection_criteria) = \
             _parse_args(all_procs, really_all_procs, args)
