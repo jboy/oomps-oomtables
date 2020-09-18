@@ -89,9 +89,9 @@ These programs are command-line-processing, configuration-parsing front-ends to 
 	  --help-list-fields-md    List all fields (in Markdown format) and exit.
 	  --help                   Show this message and exit.
 
-### Fields
+### Fields which may be shown
 
-| NAME | Is Default | KEY | DESCR |
+| NAME | Default? | KEY | DESCR |
 | -- | ---------- | -- | -- |
 | `adj` | Y | `a` | OOM Score Adjustment (Linux 2.6.36 and later): [-1000, 1000] |
 | `adjd` |   | `A` | OOM Adjustment (pre-Linux 2.6.36; now deprecated): [-17, +15] |
@@ -116,6 +116,46 @@ These programs are command-line-processing, configuration-parsing front-ends to 
 | `vszh` | Y | `v` | Virtual memory size, in human-readable format |
 | `vszk` |   | `V` | Virtual memory size, in KB or KiB |
 | `wd` |   | `w` | Current working directory (absolute path) of process |
+
+### Usage examples
+
+	Select processes owned by the caller's UID:
+	    oomps
+	or equivalently:
+	    oomps ~
+	or equivalently:
+	    oomps +
+
+	Select all processes that have a TTY:
+	    oomps %
+	or equivalently:
+	    oomps -a
+
+	Select ALL processes, even without a TTY:
+	    oomps %%
+	or equivalently:
+	    oomps -A
+
+	Select processes owned by UID 1001:
+	    oomps +1001
+
+	Select processes owned by the caller's UID, or by UIDs 1001 or 1003:
+	    oomps + +1001 +1003
+
+	Select processes owned by the caller's UID, sorted by OOM score:
+	    oomps -o
+
+	Select ALL processes, even without a TTY, sorted by virtual memory size:
+	    oomps -vA
+
+	Select all processes with a TTY, the name of which begins with "chrom":
+	    oomps %chrom
+
+	List the virtual memory size of all processes, by PID:
+	    oomps %% ==pid,vszh
+
+	List the PIDs of all processes owned by the caller's UID or by UID 1001:
+	    oomps + +1001 ==pid,
 
 ## Dependencies
 
